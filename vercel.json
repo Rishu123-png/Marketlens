@@ -1,0 +1,4 @@
+{
+  "functions": { "api/market.js": { "maxDuration": 10 } },
+  "rewrites": [{ "source": "/api/market", "destination": "/api/market.js" }]
+}
