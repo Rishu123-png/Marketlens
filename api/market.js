@@ -1,29 +1,9 @@
-// MarketLens provider gateway. Secrets stay on the Vercel server.
-const json = (res, status, body) => res.status(status).json(body);
-
-async function fetchJson(url) {
-  const response = await fetch(url);
-  const data = await response.json();
-  if (!response.ok) throw new Error(`Provider returned ${response.status}`);
-  return data;
-}
-
-function normalizeFmpQuote(item, symbol) {
-  return { symbol: item.symbol || symbol, price: item.price ?? null, change: item.change ?? null, changePercent: item.changesPercentage ?? null, dayHigh: item.dayHigh ?? null, dayLow: item.dayLow ?? null, open: item.open ?? null, previousClose: item.previousClose ?? null, volume: item.volume ?? null, source: 'Financial Modeling Prep', updatedAt: new Date().toISOString() };
-}
-
-export default async function handler(req, res) {
-  const symbol = String(req.query?.symbol || 'RELIANCE').trim().toUpperCase();
-  if (!/^[A-Z0-9._-]{1,30}$/.test(symbol)) return json(res, 400, { error: 'Invalid stock symbol.' });
-  const key = process.env.FMP_API_KEY;
-  if (!key) return json(res, 503, { error: 'FMP_API_KEY is not configured in Vercel.' });
-  try {
-    // FMP uses its documented stable quote endpoint. Indian-symbol support depends on the account/plan.
-    const url = `https://financialmodelingprep.com/api/v3/quote/${encodeURIComponent(symbol)}?apikey=${encodeURIComponent(key)}`;
-    const data = await fetchJson(url);
-    if (!Array.isArray(data) || !data.length) return json(res, 404, { error: `No quote returned for ${symbol}. Check the provider symbol format and market coverage.` });
-    return json(res, 200, normalizeFmpQuote(data[0], symbol));
-  } catch (error) {
-    return json(res, 502, { error: 'Market-data provider unavailable.', details: error.message });
-  }
-}
+// MarketLens multi-provider gateway. API keys remain server-side.
+const send=(res,status,body)=>res.status(status).json(body);
+async function getJson(url){const r=await fetch(url);const text=await r.text();let data;try{data=JSON.parse(text)}catch{throw Error(text.slice(0,160)||`Provider HTTP ${r.status}`)}if(!r.ok)throw Error(data?.['Error Message']||data?.message||data?.error||`Provider HTTP ${r.status}`);return data}
+function normalize(item,symbol,source){return {symbol:item.symbol||item.ticker||symbol,price:Number(item.price??item.close??item['05. price'])||null,change:Number(item.change??item['09. change'])||null,changePercent:Number(item.changesPercentage??item.change_percent?.replace('%','')??item['10. change percent']?.replace('%',''))||null,dayHigh:Number(item.dayHigh??item.high??item['03. high'])||null,dayLow:Number(item.dayLow??item.low??item['04. low'])||null,open:Number(item.open??item['02. open'])||null,previousClose:Number(item.previousClose??item['08. previous close'])||null,volume:Number(item.volume??item['06. volume'])||null,source,updatedAt:new Date().toISOString()}}
+export default async function handler(req,res){const symbol=String(req.query?.symbol||'RELIANCE').trim().toUpperCase();if(!/^[A-Z0-9._-]{1,30}$/.test(symbol))return send(res,400,{error:'Invalid stock symbol.'});const errors=[];
+ if(process.env.TWELVE_DATA_API_KEY){try{const d=await getJson(`https://api.twelvedata.com/quote?symbol=${encodeURIComponent(symbol)}&apikey=${encodeURIComponent(process.env.TWELVE_DATA_API_KEY)}`);if(d?.price||d?.close)return send(res,200,normalize(d,symbol,'Twelve Data'))}catch(e){errors.push(`Twelve Data: ${e.message}`)}}
+ if(process.env.ALPHA_VANTAGE_API_KEY){try{const d=await getJson(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(symbol)}&apikey=${encodeURIComponent(process.env.ALPHA_VANTAGE_API_KEY)}`);const q=d['Global Quote'];if(q?.['05. price'])return send(res,200,normalize(q,symbol,'Alpha Vantage'));if(d.Note)errors.push(`Alpha Vantage: ${d.Note}`)}catch(e){errors.push(`Alpha Vantage: ${e.message}`)}}
+ if(process.env.FMP_API_KEY){try{const d=await getJson(`https://financialmodelingprep.com/api/v3/quote/${encodeURIComponent(symbol)}?apikey=${encodeURIComponent(process.env.FMP_API_KEY)}`);if(Array.isArray(d)&&d[0])return send(res,200,normalize(d[0],symbol,'Financial Modeling Prep'))}catch(e){errors.push(`FMP: ${e.message}`)}}
+ return send(res,503,{error:'All configured market-data providers are unavailable.',details:errors});}
