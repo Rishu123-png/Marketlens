@@ -1,3 +1,8 @@
+// MarketLens real-data gateway.
+// Market providers are used for verified quotes.
+// Groq is ONLY used for research fallback and is never allowed
+// to invent a live price, volume, change or other quote fields.
+
 const CACHE_TTL_MS = 60_000;
 const cache = new Map();
 
@@ -5,17 +10,31 @@ function send(res, status, body) {
   return res.status(status).json(body);
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 function getProviderOrder() {
   const primary = String(
     process.env.PRIMARY_MARKET_PROVIDER || "fmp"
   ).toLowerCase();
 
-  const available = ["fmp", "twelve", "alpha"];
+  const available = [
+    "fmp",
+    "twelve",
+    "alpha"
+  ];
 
   return [
     primary,
-    ...available.filter((provider) => provider !== primary)
-  ].filter((provider) => available.includes(provider));
+    ...available.filter(
+      (provider) => provider !== primary
+    )
+  ].filter(
+    (provider) => available.includes(provider)
+  );
 }
 
 function getProviderSymbols(symbol) {
@@ -25,8 +44,12 @@ function getProviderSymbols(symbol) {
 
   return {
     fmp: clean,
-    twelve: clean.includes(":") ? clean : `NSE:${clean}`,
-    alpha: clean.includes(".") ? clean : `${clean}.BSE`
+    twelve: clean.includes(":")
+      ? clean
+      : `NSE:${clean}`,
+    alpha: clean.includes(".")
+      ? clean
+      : `${clean}.BSE`
   };
 }
 
@@ -50,7 +73,7 @@ async function getJson(url) {
       data = JSON.parse(text);
     } catch {
       throw new Error(
-        text.slice(0, 200) ||
+        text.slice(0, 250) ||
         `Provider HTTP ${response.status}`
       );
     }
@@ -60,14 +83,15 @@ async function getJson(url) {
         data?.["Error Message"] ||
         data?.message ||
         data?.error ||
+        data?.Information ||
         `Provider HTTP ${response.status}`
       );
     }
 
     return data;
   } catch (error) {
-    if (error.name === "AbortError") {
-      throw new Error("Request timed out.");
+    if (error?.name === "AbortError") {
+      throw new Error("Provider request timed out.");
     }
 
     throw error;
@@ -87,16 +111,25 @@ function numberOrNull(value) {
 
   const number = Number(
     String(value)
-      .replace("%", "")
       .replace(/,/g, "")
+      .replace("%", "")
   );
 
-  return Number.isFinite(number) ? number : null;
+  return Number.isFinite(number)
+    ? number
+    : null;
 }
 
-function normalize(item, symbol, source) {
+function normalize(
+  item,
+  originalSymbol,
+  source,
+  provider
+) {
   return {
-    symbol: symbol,
+    mode: "verified",
+
+    symbol: originalSymbol,
 
     price: numberOrNull(
       item.price ??
@@ -144,41 +177,64 @@ function normalize(item, symbol, source) {
 
     source,
 
-    updatedAt: new Date().toISOString()
+    provider,
+
+    quoteVerified: true,
+
+    updatedAt: new Date().toISOString(),
+
+    research: null
   };
 }
 
-async function fetchFmp(symbol, originalSymbol) {
+async function fetchFmp(
+  providerSymbol,
+  originalSymbol
+) {
   const apiKey = process.env.FMP_API_KEY;
 
   if (!apiKey) {
-    throw new Error("FMP API key is not configured.");
+    throw new Error(
+      "FMP API key is not configured."
+    );
   }
 
   const url =
-    `https://financialmodelingprep.com/api/v3/quote/` +
-    `${encodeURIComponent(symbol)}` +
+    "https://financialmodelingprep.com/api/v3/quote/" +
+    `${encodeURIComponent(providerSymbol)}` +
     `?apikey=${encodeURIComponent(apiKey)}`;
 
   const data = await getJson(url);
 
   if (!Array.isArray(data) || !data[0]) {
-    throw new Error("FMP returned no quote for this symbol.");
+    throw new Error(
+      "FMP returned no quote for this symbol."
+    );
   }
 
-  if (data[0].price === null || data[0].price === undefined) {
-    throw new Error("FMP returned no usable price.");
+  if (
+    data[0].price === null ||
+    data[0].price === undefined
+  ) {
+    throw new Error(
+      "FMP returned no usable price."
+    );
   }
 
   return normalize(
     data[0],
     originalSymbol,
-    "Financial Modeling Prep"
+    "Financial Modeling Prep",
+    "fmp"
   );
 }
 
-async function fetchTwelveData(symbol, originalSymbol) {
-  const apiKey = process.env.TWELVE_DATA_API_KEY;
+async function fetchTwelveData(
+  providerSymbol,
+  originalSymbol
+) {
+  const apiKey =
+    process.env.TWELVE_DATA_API_KEY;
 
   if (!apiKey) {
     throw new Error(
@@ -187,8 +243,8 @@ async function fetchTwelveData(symbol, originalSymbol) {
   }
 
   const url =
-    `https://api.twelvedata.com/quote` +
-    `?symbol=${encodeURIComponent(symbol)}` +
+    "https://api.twelvedata.com/quote" +
+    `?symbol=${encodeURIComponent(providerSymbol)}` +
     `&apikey=${encodeURIComponent(apiKey)}`;
 
   const data = await getJson(url);
@@ -196,6 +252,7 @@ async function fetchTwelveData(symbol, originalSymbol) {
   if (data?.code || data?.message) {
     throw new Error(
       data.message ||
+      data.code ||
       "Twelve Data returned an error."
     );
   }
@@ -217,15 +274,17 @@ async function fetchTwelveData(symbol, originalSymbol) {
   return normalize(
     data,
     originalSymbol,
-    "Twelve Data"
+    "Twelve Data",
+    "twelve"
   );
 }
 
 async function fetchAlphaVantage(
-  symbol,
+  providerSymbol,
   originalSymbol
 ) {
-  const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
+  const apiKey =
+    process.env.ALPHA_VANTAGE_API_KEY;
 
   if (!apiKey) {
     throw new Error(
@@ -234,9 +293,9 @@ async function fetchAlphaVantage(
   }
 
   const url =
-    `https://www.alphavantage.co/query` +
-    `?function=GLOBAL_QUOTE` +
-    `&symbol=${encodeURIComponent(symbol)}` +
+    "https://www.alphavantage.co/query" +
+    "?function=GLOBAL_QUOTE" +
+    `&symbol=${encodeURIComponent(providerSymbol)}` +
     `&apikey=${encodeURIComponent(apiKey)}`;
 
   const data = await getJson(url);
@@ -250,10 +309,13 @@ async function fetchAlphaVantage(
   }
 
   if (data?.["Error Message"]) {
-    throw new Error(data["Error Message"]);
+    throw new Error(
+      data["Error Message"]
+    );
   }
 
-  const quote = data?.["Global Quote"];
+  const quote =
+    data?.["Global Quote"];
 
   if (
     !quote ||
@@ -269,18 +331,176 @@ async function fetchAlphaVantage(
   return normalize(
     quote,
     originalSymbol,
-    "Alpha Vantage"
+    "Alpha Vantage",
+    "alpha"
   );
 }
 
-export default async function handler(req, res) {
+async function createGroqResearch(
+  symbol,
+  providerErrors
+) {
+  const apiKey =
+    process.env.GROQ_API_KEY;
+
+  if (!apiKey) {
+    throw new Error(
+      "Groq API key is not configured."
+    );
+  }
+
+  const model =
+    process.env.GROQ_MODEL ||
+    "llama-3.3-70b-versatile";
+
+  const prompt = `
+You are the AI research layer of MarketLens.
+
+Research the Indian listed company represented by this stock symbol:
+
+${symbol}
+
+IMPORTANT DATA INTEGRITY RULES:
+
+1. MarketLens could not obtain a verified current quote from its configured market-data providers.
+2. You MUST NOT invent or guess:
+   - current stock price
+   - today's change
+   - percentage change
+   - volume
+   - market cap
+   - P/E ratio
+   - financial results
+   - dividend values
+   - any other time-sensitive number
+3. If you cannot verify a fact from the information available to you, do not state it as current fact.
+4. This is a RESEARCH FALLBACK, not a market-data replacement.
+5. Do not give a BUY, SELL or guaranteed-return recommendation.
+6. Be useful even without a verified live quote.
+
+Return ONLY valid JSON with exactly these keys:
+
+company,
+summary,
+business,
+strengths,
+risks,
+whatToMonitor,
+researchStatus
+
+Rules for each field:
+
+company:
+Short company identification. If uncertain, say "Company identification should be verified."
+
+summary:
+A concise educational overview.
+
+business:
+What the company is generally known for.
+
+strengths:
+Array of 3 to 5 general research strengths.
+Do not invent current financial numbers.
+
+risks:
+Array of 3 to 5 genuine categories of risk to research.
+
+whatToMonitor:
+Array of 4 to 6 things an investor should verify using real current data.
+
+researchStatus:
+Must say exactly:
+"Research fallback — live quote unavailable and no market price has been generated."
+
+Provider failures received by MarketLens:
+${JSON.stringify(providerErrors)}
+`;
+
+  const response = await fetch(
+    "https://api.groq.com/openai/v1/chat/completions",
+    {
+      method: "POST",
+
+      headers: {
+        "Content-Type":
+          "application/json",
+
+        Authorization:
+          `Bearer ${apiKey}`
+      },
+
+      body: JSON.stringify({
+        model,
+
+        temperature: 0.1,
+
+        response_format: {
+          type: "json_object"
+        },
+
+        messages: [
+          {
+            role: "system",
+
+            content:
+              "You are a cautious financial research assistant. Never fabricate current prices, market statistics, financial metrics or live information."
+          },
+
+          {
+            role: "user",
+
+            content: prompt
+          }
+        ]
+      })
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      data?.error?.message ||
+      data?.error ||
+      "Groq research request failed."
+    );
+  }
+
+  const content =
+    data?.choices?.[0]?.message
+      ?.content;
+
+  if (!content) {
+    throw new Error(
+      "Groq returned an empty response."
+    );
+  }
+
+  try {
+    return JSON.parse(content);
+  } catch {
+    throw new Error(
+      "Groq returned invalid research JSON."
+    );
+  }
+}
+
+export default async function handler(
+  req,
+  res
+) {
   const symbol = String(
     req.query?.symbol || "RELIANCE"
   )
     .trim()
     .toUpperCase();
 
-  if (!/^[A-Z0-9._:-]{1,40}$/.test(symbol)) {
+  if (
+    !/^[A-Z0-9._:-]{1,40}$/.test(
+      symbol
+    )
+  ) {
     return send(res, 400, {
       error: "Invalid stock symbol."
     });
@@ -290,7 +510,8 @@ export default async function handler(req, res) {
 
   if (
     cached &&
-    Date.now() - cached.createdAt < CACHE_TTL_MS
+    Date.now() - cached.createdAt <
+      CACHE_TTL_MS
   ) {
     return send(res, 200, {
       ...cached.data,
@@ -298,8 +519,11 @@ export default async function handler(req, res) {
     });
   }
 
-  const providerSymbols = getProviderSymbols(symbol);
-  const providerOrder = getProviderOrder();
+  const providerSymbols =
+    getProviderSymbols(symbol);
+
+  const providerOrder =
+    getProviderOrder();
 
   const providers = {
     fmp: () =>
@@ -323,15 +547,27 @@ export default async function handler(req, res) {
 
   const errors = [];
 
-  for (const provider of providerOrder) {
+  for (
+    let index = 0;
+    index < providerOrder.length;
+    index += 1
+  ) {
+    const provider =
+      providerOrder[index];
+
     try {
-      const quote = await providers[provider]();
+      const quote =
+        await providers[provider]();
 
       const data = {
         ...quote,
+
         cached: false,
+
         fallbackUsed:
-          provider !== providerOrder[0]
+          index > 0,
+
+        providerErrors: []
       };
 
       cache.set(symbol, {
@@ -343,17 +579,92 @@ export default async function handler(req, res) {
     } catch (error) {
       errors.push({
         provider,
+
         message:
           error instanceof Error
             ? error.message
             : "Unknown provider error"
       });
+
+      // Small delay before the next provider.
+      // This reduces immediate request bursts.
+      if (
+        index <
+        providerOrder.length - 1
+      ) {
+        await sleep(250);
+      }
     }
   }
 
-  return send(res, 503, {
-    error:
-      "No configured market-data provider could return a usable quote.",
-    details: errors
-  });
+  // FINAL FALLBACK:
+  // Groq provides research ONLY.
+  // It never provides an invented market quote.
+  try {
+    const research =
+      await createGroqResearch(
+        symbol,
+        errors
+      );
+
+    const data = {
+      mode: "research",
+
+      symbol,
+
+      price: null,
+      change: null,
+      changePercent: null,
+      dayHigh: null,
+      dayLow: null,
+      open: null,
+      previousClose: null,
+      volume: null,
+
+      source:
+        "Groq AI Research Fallback",
+
+      provider:
+        "groq",
+
+      quoteVerified: false,
+
+      fallbackUsed: true,
+
+      providerErrors: errors,
+
+      updatedAt:
+        new Date().toISOString(),
+
+      research
+    };
+
+    // Research fallback cache:
+    // 5 minutes to avoid unnecessary Groq calls.
+    cache.set(symbol, {
+      data,
+      createdAt:
+        Date.now() -
+        CACHE_TTL_MS +
+        300_000
+    });
+
+    return send(res, 200, data);
+  } catch (groqError) {
+    errors.push({
+      provider: "groq",
+
+      message:
+        groqError instanceof Error
+          ? groqError.message
+          : "Unknown Groq error"
+    });
+
+    return send(res, 503, {
+      error:
+        "No verified market quote is available and the AI research fallback also failed.",
+
+      details: errors
+    });
+  }
 }
