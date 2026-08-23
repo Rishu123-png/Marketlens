@@ -1,33 +1,41 @@
 const CACHE_TTL_MS = 60_000;
 const cache = new Map();
 
-const send = (res, status, body) => res.status(status).json(body);
+function send(res, status, body) {
+  return res.status(status).json(body);
+}
 
 function getProviderOrder() {
   const primary = String(
-    process.env.PRIMARY_MARKET_PROVIDER || 'fmp'
+    process.env.PRIMARY_MARKET_PROVIDER || "fmp"
   ).toLowerCase();
 
-  const available = ['fmp', 'twelve', 'alpha'];
+  const available = ["fmp", "twelve", "alpha"];
+
   return [
     primary,
     ...available.filter((provider) => provider !== primary)
   ].filter((provider) => available.includes(provider));
 }
 
-function providerSymbols(symbol) {
-  const clean = String(symbol || '').trim().toUpperCase();
+function getProviderSymbols(symbol) {
+  const clean = String(symbol || "")
+    .trim()
+    .toUpperCase();
 
   return {
     fmp: clean,
-    twelve: clean.includes(':') ? clean : `NSE:${clean}`,
-    alpha: clean.includes('.') ? clean : `${clean}.BSE`
+    twelve: clean.includes(":") ? clean : `NSE:${clean}`,
+    alpha: clean.includes(".") ? clean : `${clean}.BSE`
   };
 }
 
 async function getJson(url) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8_000);
+
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, 10_000);
 
   try {
     const response = await fetch(url, {
@@ -37,17 +45,19 @@ async function getJson(url) {
     const text = await response.text();
 
     let data;
+
     try {
       data = JSON.parse(text);
     } catch {
       throw new Error(
-        text.slice(0, 160) || `Provider HTTP ${response.status}`
+        text.slice(0, 200) ||
+        `Provider HTTP ${response.status}`
       );
     }
 
     if (!response.ok) {
       throw new Error(
-        data?.['Error Message'] ||
+        data?.["Error Message"] ||
         data?.message ||
         data?.error ||
         `Provider HTTP ${response.status}`
@@ -55,6 +65,12 @@ async function getJson(url) {
     }
 
     return data;
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error("Request timed out.");
+    }
+
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
@@ -64,13 +80,15 @@ function numberOrNull(value) {
   if (
     value === null ||
     value === undefined ||
-    value === ''
+    value === ""
   ) {
     return null;
   }
 
   const number = Number(
-    String(value).replace('%', '')
+    String(value)
+      .replace("%", "")
+      .replace(/,/g, "")
   );
 
   return Number.isFinite(number) ? number : null;
@@ -78,144 +96,193 @@ function numberOrNull(value) {
 
 function normalize(item, symbol, source) {
   return {
-    symbol,
+    symbol: symbol,
+
     price: numberOrNull(
       item.price ??
       item.close ??
-      item['05. price']
+      item["05. price"]
     ),
+
     change: numberOrNull(
       item.change ??
-      item['09. change']
+      item["09. change"]
     ),
+
     changePercent: numberOrNull(
       item.changesPercentage ??
       item.change_percent ??
-      item['10. change percent']
+      item["10. change percent"]
     ),
+
     dayHigh: numberOrNull(
       item.dayHigh ??
       item.high ??
-      item['03. high']
+      item["03. high"]
     ),
+
     dayLow: numberOrNull(
       item.dayLow ??
       item.low ??
-      item['04. low']
+      item["04. low"]
     ),
+
     open: numberOrNull(
       item.open ??
-      item['02. open']
+      item["02. open"]
     ),
+
     previousClose: numberOrNull(
       item.previousClose ??
-      item['08. previous close']
+      item["08. previous close"]
     ),
+
     volume: numberOrNull(
       item.volume ??
-      item['06. volume']
+      item["06. volume"]
     ),
+
     source,
+
     updatedAt: new Date().toISOString()
   };
 }
 
-async function fetchFmp(symbol) {
-  if (!process.env.FMP_API_KEY) {
-    throw new Error('FMP API key is not configured.');
+async function fetchFmp(symbol, originalSymbol) {
+  const apiKey = process.env.FMP_API_KEY;
+
+  if (!apiKey) {
+    throw new Error("FMP API key is not configured.");
   }
 
-  const data = await getJson(
-    `https://financialmodelingprep.com/api/v3/quote/${encodeURIComponent(symbol)}?apikey=${encodeURIComponent(process.env.FMP_API_KEY)}`
-  );
+  const url =
+    `https://financialmodelingprep.com/api/v3/quote/` +
+    `${encodeURIComponent(symbol)}` +
+    `?apikey=${encodeURIComponent(apiKey)}`;
+
+  const data = await getJson(url);
 
   if (!Array.isArray(data) || !data[0]) {
-    throw new Error('No quote returned for this symbol.');
+    throw new Error("FMP returned no quote for this symbol.");
   }
 
-  if (data[0]?.price == null) {
-    throw new Error('FMP returned no usable price.');
+  if (data[0].price === null || data[0].price === undefined) {
+    throw new Error("FMP returned no usable price.");
   }
 
   return normalize(
     data[0],
-    symbol,
-    'Financial Modeling Prep'
+    originalSymbol,
+    "Financial Modeling Prep"
   );
 }
 
-async function fetchTwelveData(symbol) {
-  if (!process.env.TWELVE_DATA_API_KEY) {
-    throw new Error('Twelve Data API key is not configured.');
-  }
+async function fetchTwelveData(symbol, originalSymbol) {
+  const apiKey = process.env.TWELVE_DATA_API_KEY;
 
-  const data = await getJson(
-    `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(symbol)}&apikey=${encodeURIComponent(process.env.TWELVE_DATA_API_KEY)}`
-  );
-
-  if (data?.code || data?.message) {
+  if (!apiKey) {
     throw new Error(
-      data.message || 'Twelve Data returned an error.'
+      "Twelve Data API key is not configured."
     );
   }
 
-  if (data?.price == null && data?.close == null) {
-    throw new Error('No usable quote returned.');
+  const url =
+    `https://api.twelvedata.com/quote` +
+    `?symbol=${encodeURIComponent(symbol)}` +
+    `&apikey=${encodeURIComponent(apiKey)}`;
+
+  const data = await getJson(url);
+
+  if (data?.code || data?.message) {
+    throw new Error(
+      data.message ||
+      "Twelve Data returned an error."
+    );
+  }
+
+  if (
+    data?.price === null ||
+    data?.price === undefined
+  ) {
+    if (
+      data?.close === null ||
+      data?.close === undefined
+    ) {
+      throw new Error(
+        "Twelve Data returned no usable quote."
+      );
+    }
   }
 
   return normalize(
     data,
-    symbol.replace(/^NSE:/, ''),
-    'Twelve Data'
+    originalSymbol,
+    "Twelve Data"
   );
 }
 
-async function fetchAlphaVantage(symbol) {
-  if (!process.env.ALPHA_VANTAGE_API_KEY) {
+async function fetchAlphaVantage(
+  symbol,
+  originalSymbol
+) {
+  const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
+
+  if (!apiKey) {
     throw new Error(
-      'Alpha Vantage API key is not configured.'
+      "Alpha Vantage API key is not configured."
     );
   }
 
-  const data = await getJson(
-    `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(symbol)}&apikey=${encodeURIComponent(process.env.ALPHA_VANTAGE_API_KEY)}`
-  );
+  const url =
+    `https://www.alphavantage.co/query` +
+    `?function=GLOBAL_QUOTE` +
+    `&symbol=${encodeURIComponent(symbol)}` +
+    `&apikey=${encodeURIComponent(apiKey)}`;
 
-  if (data.Note) {
+  const data = await getJson(url);
+
+  if (data?.Note) {
     throw new Error(data.Note);
   }
 
-  if (data.Information) {
+  if (data?.Information) {
     throw new Error(data.Information);
   }
 
-  if (data['Error Message']) {
-    throw new Error(data['Error Message']);
+  if (data?.["Error Message"]) {
+    throw new Error(data["Error Message"]);
   }
 
-  const quote = data['Global Quote'];
+  const quote = data?.["Global Quote"];
 
-  if (!quote || quote['05. price'] == null) {
+  if (
+    !quote ||
+    quote["05. price"] === null ||
+    quote["05. price"] === undefined ||
+    quote["05. price"] === ""
+  ) {
     throw new Error(
-      'No usable quote returned for this symbol.'
+      "Alpha Vantage returned no usable quote."
     );
   }
 
   return normalize(
     quote,
-    symbol.replace(/\.(BSE|NS|NSE)$/i, ''),
-    'Alpha Vantage'
+    originalSymbol,
+    "Alpha Vantage"
   );
 }
 
 export default async function handler(req, res) {
   const symbol = String(
-    req.query?.symbol || 'RELIANCE'
-  ).trim().toUpperCase();
+    req.query?.symbol || "RELIANCE"
+  )
+    .trim()
+    .toUpperCase();
 
   if (!/^[A-Z0-9._:-]{1,40}$/.test(symbol)) {
     return send(res, 400, {
-      error: 'Invalid stock symbol.'
+      error: "Invalid stock symbol."
     });
   }
 
@@ -231,16 +298,32 @@ export default async function handler(req, res) {
     });
   }
 
-  const symbols = providerSymbols(symbol);
-  const errors = [];
+  const providerSymbols = getProviderSymbols(symbol);
+  const providerOrder = getProviderOrder();
 
   const providers = {
-    fmp: () => fetchFmp(symbols.fmp),
-    twelve: () => fetchTwelveData(symbols.twelve),
-    alpha: () => fetchAlphaVantage(symbols.alpha)
+    fmp: () =>
+      fetchFmp(
+        providerSymbols.fmp,
+        symbol
+      ),
+
+    twelve: () =>
+      fetchTwelveData(
+        providerSymbols.twelve,
+        symbol
+      ),
+
+    alpha: () =>
+      fetchAlphaVantage(
+        providerSymbols.alpha,
+        symbol
+      )
   };
 
-  for (const provider of getProviderOrder()) {
+  const errors = [];
+
+  for (const provider of providerOrder) {
     try {
       const quote = await providers[provider]();
 
@@ -248,7 +331,7 @@ export default async function handler(req, res) {
         ...quote,
         cached: false,
         fallbackUsed:
-          provider !== getProviderOrder()[0]
+          provider !== providerOrder[0]
       };
 
       cache.set(symbol, {
@@ -263,14 +346,14 @@ export default async function handler(req, res) {
         message:
           error instanceof Error
             ? error.message
-            : 'Unknown provider error'
+            : "Unknown provider error"
       });
     }
   }
 
   return send(res, 503, {
     error:
-      'No configured provider could return a usable quote.',
+      "No configured market-data provider could return a usable quote.",
     details: errors
   });
 }
