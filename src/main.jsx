@@ -1,871 +1,331 @@
-import React, {
-  useEffect,
-  useState
-} from "react";
-
-import {
-  createRoot
-} from "react-dom/client";
-
-import "./styles.css";
-
-const symbols = [
-  "RELIANCE",
-  "TCS",
-  "INFY",
-  "HDFCBANK",
-  "BHARTIARTL"
-];
-
-const money = (value) => {
-  if (
-    value === null ||
-    value === undefined
-  ) {
-    return "Not verified";
-  }
-
-  return `‚Çπ${Number(
-    value
-  ).toLocaleString(
-    "en-IN",
-    {
-      maximumFractionDigits: 2
-    }
-  )}`;
-};
-
-const pct = (value) => {
-  if (
-    value === null ||
-    value === undefined
-  ) {
-    return "Not verified";
-  }
-
-  const number = Number(value);
-
-  return `${
-    number > 0 ? "+" : ""
-  }${number.toFixed(2)}%`;
-};
-
-function App() {
-  const [started, setStarted] =
-    useState(false);
-
-  const [query, setQuery] =
-    useState("");
-
-  const [stocks, setStocks] =
-    useState([]);
-
-  const [selected, setSelected] =
-    useState(null);
-
-  const [loading, setLoading] =
-    useState(false);
-
-  const [error, setError] =
-    useState("");
-
-  async function load() {
-    setLoading(true);
-    setError("");
-
-    try {
-      // Sequential loading prevents all five
-      // stocks from hitting fallback APIs at once.
-      const successful = [];
-      const failed = [];
-
-      for (const symbol of symbols) {
-        try {
-          const response =
-            await fetch(
-              `/api/market?symbol=${encodeURIComponent(
-                symbol
-              )}`
-            );
-
-          const data =
-            await response.json();
-
-          if (!response.ok) {
-            throw new Error(
-              data.error ||
-              "Market data unavailable"
-            );
-          }
-
-          successful.push(data);
-
-          // Small delay between symbols.
-          await new Promise(
-            (resolve) =>
-              setTimeout(resolve, 700)
-          );
-        } catch (stockError) {
-          failed.push(
-            stockError instanceof Error
-              ? stockError.message
-              : `${symbol} unavailable`
-          );
-        }
-      }
-
-      setStocks(successful);
-
-      const verifiedCount =
-        successful.filter(
-          (stock) =>
-            stock.mode === "verified"
-        ).length;
-
-      const researchCount =
-        successful.filter(
-          (stock) =>
-            stock.mode === "research"
-        ).length;
-
-      if (successful.length === 0) {
-        setError(
-          failed[0] ||
-          "No stock information could be loaded."
-        );
-      } else if (
-        researchCount > 0
-      ) {
-        setError(
-          `${verifiedCount} of ${symbols.length} stocks have verified provider quotes. ${researchCount} stock(s) are in AI Research Mode because a live quote could not be verified.`
-        );
-      } else if (
-        failed.length > 0
-      ) {
-        setError(
-          `${successful.length} of ${symbols.length} stocks loaded. Some requests are temporarily unavailable.`
-        );
-      }
-    } catch (loadError) {
-      setStocks([]);
-
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Unable to load stock information."
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    if (started) {
-      load();
-    }
-  }, [started]);
-
-  const filtered =
-    stocks.filter(
-      (stock) =>
-        (stock.symbol || "")
-          .toLowerCase()
-          .includes(
-            query.toLowerCase()
-          )
-    );
-
-  const verifiedCount =
-    stocks.filter(
-      (stock) =>
-        stock.mode === "verified"
-    ).length;
-
-  const researchCount =
-    stocks.filter(
-      (stock) =>
-        stock.mode === "research"
-    ).length;
-
-  return (
-    <div className="app">
-      <header>
-        <div className="brand">
-          <div className="logo">
-            ‚åÅ
-          </div>
-
-          <div>
-            <strong>
-              MarketLens
-            </strong>
-
-            <small>
-              Clarity for every market move
-            </small>
-          </div>
-        </div>
-
-        <nav>
-          <button className="nav active">
-            Overview
-          </button>
-
-          <button className="nav">
-            Screener
-          </button>
-
-          <button className="nav">
-            Watchlist
-          </button>
-        </nav>
-
-        <button className="menu">
-          ‚ò∞
-        </button>
-      </header>
-  {!started ? (
-        <main className="landing">
-          <div className="eyebrow">
-            <span className="pulse" />
-            INDIAN MARKETS ¬∑ RESEARCH
-          </div>
-
-          <h1>
-            See the market
-            <br />
-
-            <em>
-              with clarity.
-            </em>
-          </h1>
-
-          <p className="hero-copy">
-            MarketLens uses verified provider
-            quotes when available and clearly
-            labels AI research when a live quote
-            cannot be verified.
-          </p>
-
-          <div className="hero-actions">
-            <button
-              className="primary"
-              onClick={() =>
-                setStarted(true)
-              }
-            >
-              Start analyzing
-              <span>
-                ‚Üí
-              </span>
-            </button>
-
-            <button
-              className="ghost"
-              onClick={() =>
-                document
-                  .getElementById("how")
-                  ?.scrollIntoView({
-                    behavior: "smooth"
-                  })
-              }
-            >
-              How it works
-              <span>
-                ‚Üì
-              </span>
-            </button>
-          </div>
-
-          <div className="hero-note">
-            ‚óâ Verified quotes when available ¬∑
-            AI never invents a market price
-          </div>
-
-          <div className="orbit">
-            <div className="orbit-ring" />
-
-            <div className="orb-center">
-              <span>
-                ML
-              </span>
-            </div>
-
-            <div className="orb-card card-a">
-              <small>
-                DATA FIRST
-              </small>
-
-              <b>
-                Verified quotes
-              </b>
-
-              <span className="muted">
-                Provider-backed
-              </span>
-            </div>
-
-            <div className="orb-card card-b">
-              <small>
-                AI RESEARCH
-              </small>
-
-              <b>
-                Clear fallback
-              </b>
-
-              <span className="muted">
-                No invented prices
-              </span>
-            </div>
-          </div>
-
-          <section
-            id="how"
-            className="features"
-          >
-            <div>
-              <span className="feature-num">
-                01
-              </span>
-
-              <h3>
-                Verify
-              </h3>
-
-              <p>
-                Request quotes from configured
-                market-data providers.
-              </p>
-            </div>
-
-            <div>
-              <span className="feature-num">
-                02
-              </span>
-
-              <h3>
-                Fallback
-              </h3>
-
-              <p>
-                Try another provider if the first
-                one cannot return a usable quote.
-              </p>
-            </div>
-
-            <div>
-              <span className="feature-num">
-                03
-              </span>
-
-              <h3>
-                Research
-              </h3>
-
-              <p>
-                Use AI research only when live
-                market data cannot be verified.
-              </p>
-            </div>
-          </section>
-        </main>
-      ) : (
-        <main className="dashboard">
-          <div className="dash-top">
-            <div>
-              <div className="eyebrow">
-                MARKET OVERVIEW
-                <span className="live-dot" />
-                DATA + RESEARCH
-              </div>
-
-              <h1>
-                Market dashboard.
-              </h1>
-
-              <p>
-                Verified quotes are clearly
-                separated from AI research mode.
-              </p>
-            </div>
-
-            <button
-              className="refresh"
-              onClick={load}
-              disabled={loading}
-            >
-              {loading
-                ? "Loading..."
-                : "‚Üª Refresh"}
-            </button>
-          </div>
-
-          <div className="search-wrap">
-            <span>
-              ‚åï
-            </span>
-
-            <input
-              className="search"
-              value={query}
-              onChange={(event) =>
-                setQuery(
-                  event.target.value
-                )
-              }
-              placeholder="Search loaded symbols..."
-            />
-          </div>
-  {error && (
-            <div className="api-error">
-              <b>
-                {researchCount > 0
-                  ? "Mixed data mode"
-                  : stocks.length > 0
-                  ? "Partial market data"
-                  : "Information unavailable"}
-              </b>
-
-              <span>
-                {error}
-              </span>
-
-              <small>
-                AI Research Mode is not a live
-                market quote and does not generate
-                prices or other unverified
-                time-sensitive values.
-              </small>
-            </div>
-          )}
-
-          {loading && (
-            <div className="loading">
-              Loading provider data and research
-              fallback‚Ä¶
-            </div>
-          )}
-
-          {!loading &&
-            stocks.length > 0 && (
-              <>
-                <div className="data-banner">
-                  ‚óè VERIFIED QUOTES:{" "}
-                  {verifiedCount} ¬∑ AI RESEARCH:{" "}
-                  {researchCount}
-                </div>
-
-                <div className="content-grid">
-                  <section className="panel">
-                    <div className="panel-head">
-                      <div>
-                        <h2>
-                          Stock information
-                        </h2>
-
-                        <p>
-                          Verified quotes are
-                          distinguished from
-                          research-only results.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="stock-list">
-                      {filtered.map(
-                        (stock) => (
-                          <button
-                            className="stock-row"
-                            onClick={() =>
-                              setSelected(stock)
-                            }
-                            key={stock.symbol}
-                          >
-                            <div className="stock-icon">
-                              {stock.symbol.slice(
-                                0,
-                                2
-                              )}
-                            </div>
-
-                            <div className="stock-name">
-                              <b>
-                                {stock.symbol}
-                              </b>
-
-                              <small>
-                                {stock.mode ===
-                                "verified"
-                                  ? `Verified quote: ${stock.source}`
-                                  : "AI Research Mode ¬∑ live quote unavailable"}
-                              </small>
-                            </div>
-
-                            <div className="stock-price">
-                              <b>
-                                {stock.mode ===
-                                "verified"
-                                  ? money(
-                                      stock.price
-                                    )
-                                  : "Research"}
-                              </b>
-
-                              <span
-                                className={
-                                  stock.mode ===
-                                  "verified"
-                                    ? Number(
-                                        stock.changePercent
-                                      ) >= 0
-                                      ? "up"
-                                      : "down"
-                                    : ""
-                                }
-                              >
-                                {stock.mode ===
-                                "verified"
-                                  ? pct(
-                                      stock.changePercent
-                                    )
-                                  : "No price generated"}
-                              </span>
-                            </div>
-
-                            <span className="arrow">
-                              ‚Üí
-                            </span>
-                          </button>
-                        )
-                      )}
-{filtered.length === 0 && (
-                        <div className="empty">
-                          No loaded symbol matches
-                          your search.
-                        </div>
-                      )}
-                    </div>
-                  </section>
-
-                  <aside className="panel">
-                    <div className="panel-head">
-                      <div>
-                        <h2>
-                          Data quality
-                        </h2>
-
-                        <p>
-                          Know what type of
-                          information you are seeing.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="quality">
-                      <span className="quality-dot" />
-
-                      <b>
-                        {verifiedCount > 0
-                          ? "Provider data received"
-                          : "Research fallback active"}
-                      </b>
-                    </div>
-
-                    <div className="quality-line">
-                      <span>
-                        Verified quotes
-                      </span>
-
-                      <b>
-                        {verifiedCount}
-                      </b>
-                    </div>
-
-                    <div className="quality-line">
-                      <span>
-                        Research fallback
-                      </span>
-
-                      <b>
-                        {researchCount}
-                      </b>
-                    </div>
-
-                    <div className="quality-line">
-                      <span>
-                        Total loaded
-                      </span>
-
-                      <b>
-                        {stocks.length}
-                      </b>
-                    </div>
-
-                    <div className="tip">
-                      <b>
-                        Important
-                      </b>
-
-                      <p>
-                        Research mode is useful for
-                        understanding a company, but
-                        a current price must come
-                        from a verified market-data
-                        source.
-                      </p>
-                    </div>
-                  </aside>
-                </div>
-              </>
-            )}
-
-          {!loading &&
-            !stocks.length &&
-            !error && (
-              <div className="empty">
-                No information could be loaded.
-              </div>
-            )}
-
-          <div className="disclaimer">
-            MarketLens is a research and education
-            tool. AI research is not a verified
-            live quote and is not personalized
-            investment advice.
-          </div>
-        </main>
-      )}
-
-      <footer>
-        <span>
-          MarketLens
-        </span>
-
-        <span>
-          Made by Rishu Jaswar
-        </span>
-
-        <span>
-          Research clearly ¬∑ Invest responsibly
-        </span>
-      </footer>
-
-      {selected && (
-        <div
-          className="modal-backdrop"
-          onClick={() =>
-            setSelected(null)
-          }
-        >
-          <div
-            className="modal"
-            onClick={(event) =>
-              event.stopPropagation()
-            }
-          >
-            <button
-              className="close"
-              onClick={() =>
-                setSelected(null)
-              }
-            >
-              √ó
-            </button>
-
-            {selected.mode ===
-            "verified" ? (
-              <>
-                <div className="eyebrow">
-                  VERIFIED QUOTE ¬∑{" "}
-                  {selected.symbol}
-                </div>
-
-                <h2>
-                  {selected.symbol}
-                </h2>
-
-                <div className="modal-price">
-                  {money(selected.price)}
-   <span
-                    className={
-                      Number(
-                        selected.changePercent
-                      ) >= 0
-                        ? "up"
-                        : "down"
-                    }
-                  >
-                    {pct(
-                      selected.changePercent
-                    )}
-                  </span>
-                </div>
-
-                <div className="report">
-                  <b>
-                    Verified provider data
-                  </b>
-
-                  <div className="metrics">
-                    <span>
-                      <small>
-                        Open
-                      </small>
-
-                      <b>
-                        {money(
-                          selected.open
-                        )}
-                      </b>
-                    </span>
-
-                    <span>
-                      <small>
-                        Day high
-                      </small>
-
-                      <b>
-                        {money(
-                          selected.dayHigh
-                        )}
-                      </b>
-                    </span>
-
-                    <span>
-                      <small>
-                        Volume
-                      </small>
-
-                      <b>
-                        {selected.volume !=
-                        null
-                          ? Number(
-                              selected.volume
-                            ).toLocaleString(
-                              "en-IN"
-                            )
-                          : "‚Äî"}
-                      </b>
-                    </span>
-                  </div>
-
-                  <p>
-                    Source:{" "}
-                    {selected.source}
-                  </p>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="eyebrow">
-                  AI RESEARCH MODE ¬∑{" "}
-                  {selected.symbol}
-                </div>
-
-                <h2>
-                  {selected.symbol}
-                </h2>
-
-                <div className="modal-price">
-                  Live quote unavailable
-                </div>
-
-                <div className="report">
-                  <b>
-                    {selected.research
-                      ?.company ||
-                      "Research fallback"}
-                  </b>
-
-                  <p>
-                    {selected.research
-                      ?.summary ||
-                      "No research summary was returned."}
-                  </p>
-
-                  <div className="metrics">
-                    <span>
-                      <small>
-                        Business
-                      </small>
-
-                      <b>
-                        {selected.research
-                          ?.business ||
-                          "Not available"}
-                      </b>
-                    </span>
-                  </div>
-
-                  <p>
-                    <b>
-                      Strengths to research:
-                    </b>
-                  </p>
-
-                  <p>
-                    {Array.isArray(
-                      selected.research
-                        ?.strengths
-                    )
-                      ? selected.research.strengths.join(
-                          " ‚Ä¢ "
-                        )
-                      : "Not available"}
-                  </p>
-
-                  <p>
-                    <b>
-                      Risks to research:
-                    </b>
-                  </p>
-
-                  <p>
-                    {Array.isArray(
-                      selected.research
-                        ?.risks
-                    )
-                      ? selected.research.risks.join(
-                          " ‚Ä¢ "
-                        )
-                      : "Not available"}
-                  </p>
-
-                  <p>
-                    <b>
-                      What to monitor:
-                    </b>
-                  </p>
-
-                  <p>
-                    {Array.isArray(
-                      selected.research
-                        ?.whatToMonitor
-                    )
-                      ? selected.research.whatToMonitor.join(
-                          " ‚Ä¢ "
-                        )
-                      : "Not available"}
-                  </p>
-
-                  <p>
-                    <small>
-                      {selected.research
-                        ?.researchStatus ||
-                        "Research fallback ‚Äî live quote unavailable and no market price has been generated."}
-                    </small>
-                  </p>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-createRoot(
-  document.getElementById("root")
-).render(<App />);
+%PDF-1.4
+%ìåãû ReportLab Generated PDF document (opensource)
+1 0 obj
+<<
+/F1 2 0 R /F2 3 0 R /F3 4 0 R /F4 5 0 R /F5 9 0 R
+>>
+endobj
+2 0 obj
+<<
+/BaseFont /Helvetica /Encoding /WinAnsiEncoding /Name /F1 /Subtype /Type1 /Type /Font
+>>
+endobj
+3 0 obj
+<<
+/BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding /Name /F2 /Subtype /Type1 /Type /Font
+>>
+endobj
+4 0 obj
+<<
+/BaseFont /Courier /Encoding /WinAnsiEncoding /Name /F3 /Subtype /Type1 /Type /Font
+>>
+endobj
+5 0 obj
+<<
+/BaseFont /ZapfDingbats /Name /F4 /Subtype /Type1 /Type /Font
+>>
+endobj
+6 0 obj
+<<
+/Contents 21 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 20 0 R /Resources <<
+/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>> /Rotate 0 /Trans <<
+
+>> 
+  /Type /Page
+>>
+endobj
+7 0 obj
+<<
+/Contents 22 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 20 0 R /Resources <<
+/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>> /Rotate 0 /Trans <<
+
+>> 
+  /Type /Page
+>>
+endobj
+8 0 obj
+<<
+/Contents 23 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 20 0 R /Resources <<
+/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>> /Rotate 0 /Trans <<
+
+>> 
+  /Type /Page
+>>
+endobj
+9 0 obj
+<<
+/BaseFont /Symbol /Name /F5 /Subtype /Type1 /Type /Font
+>>
+endobj
+10 0 obj
+<<
+/Contents 24 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 20 0 R /Resources <<
+/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>> /Rotate 0 /Trans <<
+
+>> 
+  /Type /Page
+>>
+endobj
+11 0 obj
+<<
+/Contents 25 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 20 0 R /Resources <<
+/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>> /Rotate 0 /Trans <<
+
+>> 
+  /Type /Page
+>>
+endobj
+12 0 obj
+<<
+/Contents 26 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 20 0 R /Resources <<
+/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>> /Rotate 0 /Trans <<
+
+>> 
+  /Type /Page
+>>
+endobj
+13 0 obj
+<<
+/Contents 27 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 20 0 R /Resources <<
+/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>> /Rotate 0 /Trans <<
+
+>> 
+  /Type /Page
+>>
+endobj
+14 0 obj
+<<
+/Contents 28 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 20 0 R /Resources <<
+/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>> /Rotate 0 /Trans <<
+
+>> 
+  /Type /Page
+>>
+endobj
+15 0 obj
+<<
+/Contents 29 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 20 0 R /Resources <<
+/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>> /Rotate 0 /Trans <<
+
+>> 
+  /Type /Page
+>>
+endobj
+16 0 obj
+<<
+/Contents 30 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 20 0 R /Resources <<
+/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>> /Rotate 0 /Trans <<
+
+>> 
+  /Type /Page
+>>
+endobj
+17 0 obj
+<<
+/Contents 31 0 R /MediaBox [ 0 0 595.2756 841.8898 ] /Parent 20 0 R /Resources <<
+/Font 1 0 R /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>> /Rotate 0 /Trans <<
+
+>> 
+  /Type /Page
+>>
+endobj
+18 0 obj
+<<
+/PageMode /UseNone /Pages 20 0 R /Type /Catalog
+>>
+endobj
+19 0 obj
+<<
+/Author (\(anonymous\)) /CreationDate (D:20260823104021+00'00') /Creator (\(unspecified\)) /Keywords () /ModDate (D:20260823104021+00'00') /Producer (ReportLab PDF Library - \(opensource\)) 
+  /Subject (\(unspecified\)) /Title (\(anonymous\)) /Trapped /False
+>>
+endobj
+20 0 obj
+<<
+/Count 11 /Kids [ 6 0 R 7 0 R 8 0 R 10 0 R 11 0 R 12 0 R 13 0 R 14 0 R 15 0 R 16 0 R 
+  17 0 R ] /Type /Pages
+>>
+endobj
+21 0 obj
+<<
+/Filter [ /ASCII85Decode /FlateDecode ] /Length 1091
+>>
+stream
+Gb!Si@;jmY&H/2-E=c$`h&JkHm5Ri!%N3h+"gXeXh+r0EZI116/!1<5-#ll`pDk^9OW:>NepSGF)m\>VH["q=;@!;O6MDG^!5Hk<n195HJlrH>cl^-k*+$tbDYCpsEZ"R;3#[ic4FZ62O,&rhB])^0]gi4aQBSUqienpA[X:q_ftq.T#F$%?/:lYb9RT3JN^CWGMT5.'R4s7"BGDWON!oZl^4-X!cS55"%N;<GeKoXt.Z:$NWba@=9;>MifBUGCeiPCf$kt<M(1WBA5ftnT@CG)4DGb+#"Y:C'<4AgB/.h<BCW"+Ke/EW,#..5rC^Pl8[igQce&L(:Pi#DtUB>@Dr+4>_09[rl&SWT\i/X91,V-]O*eT@QND.<L^+G#9S-X!>Bb7;O4tr,G(JY.W<aQH90'Q;C$l*UpbRf=r1e<b2[N&NA*0&r4od&Kl-#`\jd-^DOMq\(JjuRER7irc.b^iHrL+F587q.b:-f>-`Y.3t-gB)c#R,cSkQr\Sop4q[:&D;SHD\]-Ijil)G]k*(Dm)[Qso##KB#&rW6Cft9Ja=RbFQVn^265H%S4D\j;-o=[.Xml&8)H%l&n<Aq*?>f0mXJ2]W`tW1U8kRRXE0/0=0[;XpB02OE+)8.);#@NK4!CjCg-@7oY$_>&hCZnXS3MeNX%!O\-*6e^^]hSc1'(gEaL?(.BH\!^\Y/'N%.UtK5hZa.3/)Hh"F(a2CmXe!#msfo)VQNcXS-;:4"4#-:I_koE)G\g:i0M-NBEO^b@l?^%b-L@*f>S/(LFjrZWT@TcL,sajCa>S7F-iUpbb#,"JSB<]$^QSj(!<![V7='o7*0.foU0];boLS^[.?SIT*XHImkaW2t2:hi1sN<HN0ZITm<6_#OT/?Oj24`I811/`W`9`jh/(OAm+_PD4%'<7@tWqAm/MjJ4ZN?c,lUP;O6R5L+93m!nGF*?.u>s)UIa1BOm>\L+CbBAorM-1=J9f"%fu!p&;jiC1S5d,G*&B5c93>`ZNZKn$VcP[C3,W=T^an^-@,`o@fG+)rtAKTMe[u3PW"(5<idmhs?dr*V!hIr!2(?NN[2BS8OF\FPXXK@IJ-E3oY/~>endstream
+endobj
+22 0 obj
+<<
+/Filter [ /ASCII85Decode /FlateDecode ] /Length 969
+>>
+stream
+Gb!#ZD,8n?&H:NnEE(\W:<57gkepM%Ch(m=2"=I-&L:%jB`j2tCko.prqd\5Kd:i0\p^9;g?<o;O7/[PM[s+lp!%EB!IPp(edil#D&C7MpIGfa7rUG&h6m07B!4k=rbd3%H9V/Smrc+I?0hHo^mL%=.YZ8)'suLKl=/Ps*rY7ErS8LBLJaq$m(a[q.AHIV?4k*XrLo1IF.(*:+h61k^uttl+3PmclC`H,3P:"Gj:]cQ<>]uJG0p&t4C)Vs3G0MR3=Aj(RJ''<3&so"]Tn%L$\S2p<(.FAi5&G2P,U,Gh_D!RWWLM,#nV,((#77p7i9aG!8QZak!Y%OF5&#r"J.=o.C-4I^_bY3^mMKrF>U-tI+j?LT`D)87B1p;)2E1*M\Bj1"N;1&+ROnt"j]LZ;!!;ZV,%k=NTJB/9\;>oPfU,oklkq+8p0GuPWGYP0Gg'NSJ:`#U;18aRQ;.K/GZ>u$d#`H&p#STAN^4>WID'EWbFAdM1QRE3-!FMi+e0FPH?V+_n3as#@o!=nGMqA2kF`]RSZa@-qWJZ#s(j`QIp>P-2NEI\e=i0C?.j)k2tcWR2aJPr78\VS\L$>1LN1p<V-EHKj\m/O,o=m[cu-B9-L0(MNL>.(L:lm]'*]c3Y6ng8KuFZC;cigi5"<U(qskiYR_P:X8B)gGK[hBItMq+^1ssD5D-cP\e\16l!G<"\u*5%kVZd\"@uJK)3p*\K+VA720H,GCRg?)Td<XRmup:<XS#1mc6rsV=?:FJM+V#g:!nhA,eAUV$^&KVgd*UdXr*6/V5.U&j6f;3SC-X:?fl<q%f;^>90PY3kRj-7"0+P8A"$#*!a#!BC_LSW(6d>A?m@</k\Ehs2Q*#m#pI=)Aj`/1)JS.,:i).QBNI^f(ah=FGZ:.1e&$D%]-=$0(=c7,ZYQ/8ZS5(-8SRAE)^"RYIN)[)>i4qs;ND<$gKjXKerkK74_[4J%j'9^?2~>endstream
+endobj
+23 0 obj
+<<
+/Filter [ /ASCII85Decode /FlateDecode ] /Length 1112
+>>
+stream
+Gat=+D/[lW&H:NnEJoM"+ikQM)\c"[THQR1Cg,aq^UVC^ognGnG$57>^N30(2/A^7,Enu_IXEfph/f_$(slVdrf8gbpE:N($m9cq@049l+$t2VVd]%k(T`_9JNjEH*PI'`)h3)h*5%qm]dFU''<*a!%)s)WZ/2.,X(dVG#'Wh&L513X@7F!u_P."XH9(O,XckrM*]$`8!<O'VWg$KCr]Z"e&3enm!+KQ-O*2E?rcP;hk7ZpUGeu1iN2`F_i22S?JSSY7``"cedJ"P`a89eahVG?LfA?$#*+>*uQ!Sp@?1/dUK2Df`U+G96iXs$^_*jE_*FOSW1#W2o/`:jqr\X=lU!igAdW:.06d0$OdX]1?q&Fs&81Z!1#$SmcB4-=f92/C2R"bpAJ4V5cT,@SeUDhAlVAN2-N;LjfI,EP14?R\e=GE7PR>c+ghDt\@M+AqN\X8C"@B%96+LgCFKnu.17YNKg>S5[8rE^\VVDUI0@;R=DQj57N@3S%+<!@B.mp-CkB;d\WDPpqc@cG#(4V(#JM:ZNI(J(<Q9cg83=ILjJWF&gBB,.W1I`ZA8J*l!6-SW4J&L<'d%%!]'Zep"=.mNG\aEFP%:TqiX8nkuugWh44\S7'EkcTNOg[L<#*C.*4h;*4ZdU$/TGUIX]auPM[D.]EWRt<.oRb2nFFYQ*_H(`uj:njeXGAl%ur[s\UZF+PKQ:=4egON:qT'$`L;9_"X,cQMbeN&%#IN&^#"lfe",W31]iW76uJ\kYAitr`n(ps"Yd*-#o6G*#9'fu'ib`G[^oVf_3q>MLj6"-@?b8e2m$]8mScVmRPM0*cWXef\@hQf-/0IAP]No8+2[rWIgMTWl$V/,G#Ra13%4_+UFZ\_B1K<=fo"a*=H+2K`!AB4i.BE+`Tiid%8`3c#k20cTKcWuR^Js>(Yj'YAi:^jX+;7@r(BR@lj:5:19-`3*84*8*NEgCi'<rJ+n76[F[(%`YJ(J%5UDMd6)d;E(K-p$%f^g3JhSBF6K8>Yas?#<*DiKu2]n`d-=aVAusYqrrSC5\bPVWKWc3m,'d[Y`'glc/g^pJ#Jk*2/;8V=SF8pobcd[0c2:B#hlf3gT,Ne]j4UqM3olT9!9F~>endstream
+endobj
+24 0 obj
+<<
+/Filter [ /ASCII85Decode /FlateDecode ] /Length 1114
+>>
+stream
+Gau0CD/\/e&H;*)EA^S..9bCsm!.0I%US/q`nIM0[-`dcd*gTZ/WgrCgND!CpRY\0a:c%,.-_oZ_L(BcGL&!-N9J;8^Z,a\[h+9Q55=:PY.u-+@gHGZ4RE%$o4uV@a;ar=klf#?pX=4H3[_Pre$fZc;J"&h9\qPDHD=ADXaB-VIge*'>^00Q1CA.'Qek.CAa3P:5mC/8fR\#E$?[tT7dn$V+rWj^^RRUb*l;Pdr79#<"ju8MUT3*=B5ml>n'Ri^.!YfD#FI"f<A`oQ!$ocB%gt+>qIG`_B+&+!V+8cfX;F_fnbO9>7[E`#K-b;mAlcOLjAKTa0UKqhA8UcG&2Ou<#_G[^\m6,'7Q_Ie%0s\&2GD%;<u#$W1k'9[GSt8@enEJ.)>\gh[S.9lKJa*9bTJa8lsSJZj,0%<H?A$/,8]ZZY[XTONcF*_Fs.QgSJ';d,"VJMifn/*b;-`qZTR]kC]t;,a:_J>j0%oM0p-S%D47G/9<07%GrWGS\#2[EK(^%h!Y$U,91oeEahf)UcpgU3[L3,m0XX@@)MPV(%pS03ru'A:jo/9&'K8N)635l:3^QjOKM:fN>ujF:3BT`<?p?gi$"el;=RM-1U00G'";Vrj7n<7OT_.su&(\ZKJ'R=]_`?`3`<qOnqU'<^.0q<_\kPoM5RjreOIh?@d5)IuC\[?9"]o`\YVjZ7g&2R.6:D9Aps-aE6,r[ki[KjKOjQ*^4<AK6>KHneTQ>;93o:O_ojMN8?ees@B".8Ap?q[#GR)XljV7]c^K]JEk1=Q8$YNh;MmdTb48KABau<E5UcnIKEoe0Hk*l)J2k/gD`Sc*')7NgK"b#Psng9/3<:WI/o:p)WO==A2CesB1>[#k&GcRH(.Tp5gaHbP%lCJeb(2p0JC7ZnUpiG//$1)c=m]<k(&b/5[(-P&2_,n:R8#(=19/P_TN\;2q'ScGm(o5)4PQ[&pL064Ss,6_8ckK/CmjM75<WhE]?aEfK-QJ0&f2;4'i`4.]mF?XTW.QU%6^.uXY+!+=@+:4F]0l8-HL>fYqQ(_\`RDYs<DK2K\!h:`D(:Fg-^W_tR&g(nK7&Zds$o6')l_)+=!NjtNgTXI-g?,45C:cS%!D+:T)~>endstream
+endobj
+25 0 obj
+<<
+/Filter [ /ASCII85Decode /FlateDecode ] /Length 860
+>>
+stream
+Gb!;c>Ar4L'RnB33/TPL:.cYa1/2j(eNcK2X;b$58\@$>+WcJ7D$S(XrqAE%m23/3]232BjahLKcLH,Vfm(k?+0U&^)8K5Poq;Us'7r5hD79tj(^>P6CO&"fG/J0A*PV\nc[Fc])bh&[4hKj$c?P)>`:5_EaD-t-Hss"5hBRj6Bt6D1R0%(gf526N^=t5)C@KF,0!H=k35\^%D+F,tAg_D)cRpgmp^Fu[?-$e_7%C+<Le;hXn7G_u<oFK!iWQ@ij"J4a).PG,/)9TPd!+4$?Q$N6Z4.?O)oe5]i6i8h6r!1OV4g*>*3S8%g$s9p_tDPfeBK,LHC.@I[+8PH-L41>Ti'Jc8s'YuPi57s_43NM8Sm^DG1F#34/%BeC,!V_7gUjV1!U>i@FjfAYf<3W$'*t&=(#413T3<]HhU#qYmLLuf4ql"+NP+$@L4P[,$jt^29gA:UnM5!YJUZPfMFL-BZ$?2Q&`BUkNE>f)k5h:kFuE'$rnJm6h,1n7B%.s;ff'ZqEZ3XUQ<m>>k:`/F=s7Is)+\Fh1C_>=rL8T8q^[0p=mo6-&9L;!T$af2o@(SbC'!4KS4hKLtY,m8UpYP3guXqOhmAaM?s0cY@Aj*'@ARD4'b[eV&gIRqIF&1<YBs.8Jp!T,k5Gk!c!^ArQR'[3QFJLBGRF:):>7(BV&3T@`(9Ed<$F$le#5qk2$KrfiL[$+C]Ff(95-$HaY7UjoX&g#%XGm<f3dh%G7s+:aC*>p06/l.R>hd.4F#$`NHIT6V/YAm!m8^o/quf'O,g/#0+Xk`TlN5TZIL;[!]@aW10>%c-095oh*.pFp&DM^5=hW_=@Q@<9lY?p$ZPdn#94b(d;&0I0ZKi_h\~>endstream
+endobj
+26 0 obj
+<<
+/Filter [ /ASCII85Decode /FlateDecode ] /Length 1199
+>>
+stream
+Gatm;D/\-!&H9tYQpYVRS:\Q`$)\,6;*oT->gm/kTD5_##Op:#F`uBtB[m(=>oO%Q&*Tf?'#NL<Ap7jYH,53#q7+CfQiaqpTm>gQHO9Z[gpYZ9Ige]Zp/#h^aEGa@\_!BfBY2PsSTa>IaOOUFQ8fO5AQiU9R7UFp'lZ1:)3+(XOO!NadfDZjLKqZTF(J/33&gPm1Y>nRUj)n;02#Ek'rX7<Or,EGU5WaIa#WqpK)b#->`)_)T`W4YL]f3c6:3/`B`nV[+)+:n^S?P-Lnd>1]$9SYj]8i.`QP9`DGsuBA&/[7]?ShB\,Uo'%W>a$G)3S7#SX)b-^J5F*\k&."Hu]rnm$7.I<7i7X:edTX*5%Ri<fZ9*XPParR7Bd*;\S&qiekR,c[n#p7"KB]Ym8bF<-gWmVg"bk\`5iL"j?!LV(sPo>tD-)H?rC\4:?`l*0h99o0lB<Vlo/m.-7[E++!jZj=ER5U'<@SkbIH+Vu%M5VJ3<U9eD'"3gqsjT[ieH9o^I7k[I%,9H:,P#/,r-fh;s5iY_IXBp_ugrk=,f"Isol<-o^T+tJfmZqB_"H(gU]Cp\.ip2U&.WssBhm=Kna#qO&EVP)$WZ;)DA4_fpVhZ8RWljhZ9nNW0Es%o'i=`[ZAY_g0:SIbseQ(+ek>g_c1m<"1:2pRQ4?Y(#W;E$p*o]L3&^"F.SH`ho"sO'k+V^pGlO(/lc35%+R81QG/4&b1ScsB-8"UdAWV0Hc83hc3CV`e:`&'<-M@>>JAN"?.1FZ!3.i'BID3u:6H*oT00KmUAIX_T<k8=iq&%g\7JG&1hFIT+>WjCJm1?I"5PgVt\p$8WT<J^+O&!k1o6AB;!h10,*LmO<[l)9\b[UaAe]hFa!i+Qsk<ZF#p;%u3Zr)S6gP2qENZ^kR?Y2(8]G%(dA>dI-+UPj8I)P\12[Y%>XckL_&<""Mmc"_=&`$,Fbqc&S>UtCNdk_PL7kEqk@V"h<.rVtf?oneeR)7<0O;d/rIT'+N]]X56^1!QXH-,hVt,t^lb>LtN??kMUBH/f^JEMIMHW6O^&B"b,LJ*[B=;JQT+TZRqMS-8Xm0Aru.'0mLQY!V<oiB4/D,;@5kF<.WEC@MVXim61S.nk]Sf<Oe\o^\khhMm9m+8XpkpOeMsNq;^JI,D\eSl418YT6bYgJ/3XLZTNoCQl;g\VtapJ+Hb/9+>XN!8@'-"T~>endstream
+endobj
+27 0 obj
+<<
+/Filter [ /ASCII85Decode /FlateDecode ] /Length 916
+>>
+stream
+Gb!;dD/\,^&H88.EC--_V\'1DYXqZ*0<I(1g:B/qVgPF79Z_8?e2D-!o&"Wt:pm[1O*43$OAHM7A)D?Op733h$U6rMS`Be>,A<YO&@<T!5nNl97&OuDGun=V7YWM0'm+aB#iGJe05S%YkIj",I&(l0XQA[ae')T-E..!0Lr%=]]s-f-&EPmn+a!\#EgE<S/LRO8]r,dn@P];R&^6Wg/E_Xh_'Bi)UB?=$5kO=b(@omiG)t)hF-\kC/#iu0W,^Q$!][Y=R=O6i-Y(NY9SG@lZ(&3,IiMUQN8OcN#]+>X=G:Zp;f4.;S6:JX-D8_#QDIhFL+Jb^PX)pN.a*6l>c3I.di"C^&9;6I1-c;2)='tT`@?i(<`/L1<lB-Y\@>ki&0J^G#RG[^E&b7+8HKOm$dn6PNPnfeK?04t?kM!@gINU*9J08Cb3BpW,jLPGRdg,\5r@]_`M,-'2tMEq`3QZDc$q$L-852cif@53F3hb7PpK$`F)1C&O[S71p]b6Mj*L#K[,V7WX,60(EGZ?GakHSY.WW]C1dRt6+^IoI>B2(/c8LrViVK!:_aX/B/U+>OT:X;JfhGE4GXI\;JsdC.aEUm8WkA;.C8#X(lm5_/'h_W9DI7[Hh$`&/mp'KMN!6$$13tq$F6jg)Eoc!6@(Ime<':ttH.(A`(#sJ8]Dc`\NH>Q$MT%h\[FgI]<^G?Gm-J]<l;]A$EdaPtCt&C8LA<&@/M8@s1->O%NUj\W^a'S7P8W/_RE!fZ8`@)[J;l,3fO<)aMm(hF+EKL=JDG@bZPcR=nP4?M'R)TS0DIE0OXaRf-7)u_h=lhDUc`9F]fDI1:hha;S.9QJr]Kr5;*qk;$unp)hrWY'[B2U@]j$74_<%L6];kag^-.LhY7Fqi"TFlrY8)Yp";!4$W55P$"7J2(#(`l~>endstream
+endobj
+28 0 obj
+<<
+/Filter [ /ASCII85Decode /FlateDecode ] /Length 1026
+>>
+stream
+Gau`S;,>q#&:X)O\5aFsP=QW@FP9V>2R/*q+U6Jgo&;"Jio/P+G.X#ss1V,uTbKR;d^6Q"X2a&Qg#%4%G!kK?.kEoK%,g.Gg7L_<G@<1WYT%[mE!jX<`_@\j7s6s[-f"1X6T5G1p:?f#Z>7*:f/QYhA(G+8c89<Y9"5p$aCFuVUpn)ToO*bXO?GQ/p5193i1LA(!p>A5cK*qB%"?(ON=Q/2M#n?J%6"r3Ym)8WT/`r>%dQL.bqf"D<\8QQ%5O1mo_\Sj$\7@R2'6g3Ri?lB5kE#(i:!=aVCW"l;DPb_-*Du`W1EKn4g>Tm+;)hb1R;IaGr&l\gY%VF&t=$&DlAJe'@9AL>:CQlc3<5@PSCJ(7&B!j4bF\ijWr$7[S5Bkm%XoRf8'9ueIA;]%7lX-9B^5CeXC&C?_cH!2,=d(Xen3L*Pb8&b+VKBE+r24)Qa$eKs7YdqQOW^U7mI1(5=X?<\EDHV$UlcX!-M;l5btbbma!f&#o14[G<Y/p73Rpo2c-a:9M)HqjQ<@ZLOMa+/o5l]Nh+t#\sKmEbqq:-:fM:cRin61sJABnni$A!\hgbXJ,nOb=)CO=2;URQ!ArA0Z5]4^<BU(kpL=r>q%`)MeAtOMgJD7E"Y?J>jqnjVL[nV@?rG.1por4TP/UE1,1Rq^*;l88M@+,6-VhH^*pc:[8H"Fhg.u,S>*8kTmrA'WVTllH)QYT))]S0kAE&MOWnLRLD/Q:nAqCMYeT-upnP`qCA`[QWsO/bjqlKra7I8*a,-I-C.Ig^5n?^_Ad\Y#8fBm8S0i%!Q;k9D\6>;)]r/B?WR.\UKe!M-3su]`6^CuT>32pQKp&&2:TjTd\.rpLrt+=1jc'-!]MTms=K1ps_Ka5O'=qjDG'R;N>B1oU]`$[t4h<;F(I4%>Q5-lt9cr)3c+89$d%qOSP+JSnIJI*h%o0*Cb9V@V<!!,9OSLnJRuPVZ;ri)]4h3^G_hkdm55&M/M,4D)Qe2b4<fAN9'k9VMQ-a9r'r+*@`McZVrQk>sJArZ:!XfP~>endstream
+endobj
+29 0 obj
+<<
+/Filter [ /ASCII85Decode /FlateDecode ] /Length 824
+>>
+stream
+Gb!;c?#SFN'Re<2\;N0M-8d&r1fIJ52O1:5LpgO=VnADX!nj)'FUSQ'rqDi,(7Nn/1ek$5Gk(;ekMC8ui](>hT<nM-@Xp*Qe?0d1lJRZ;Bj+7#qU"no#K,4=S$lli/[kmXa85!XmCGDm]YEPf@QYu(@!G=(1$gcfNsuuSforqJL?4"'99KLL>)a8TCRqV!.e%1a-pB#30!Zns/'4#R^\Xo:h@K*>B]*1A)>>YYWB0QKYk+*oEDZ`1)g+)`lb#-G$Gho(_,lG(L(j_m15dn#7`cJg+*0e49UW]q(=N<!;P<,6N+NVtP%=_.A)#dn22egDm"3NE8#$>WL^F*<@`.E]m8aft9iC).orE$9qoiLb,.-+l>c>3.23h;Zb<J`=(HCJlY"0Df^AG<^ea$PYh=hkl$\&'(?(,.:[DS\8fchIm>)YVG90Qla=35gO8n:O_*O/h`+m]ALWEMpW#X(b)'VMb'bEsTc.!4oKk;o19l;sUB.](EA-&IfO3JjRF#;DOb6f]0Q#Ps&Z8]H"54MX?uNlal&BS3Drh>q\dRTe>]Qm%qHC7qSd<A$lcdm.RsnHX2]iFngP[?[;?#qn#07ub\HAR$X1p3`gA`Vo4EQuY*C6KA[j6'Q'leKT(s$\b+)9W<*fm:s]L'GF)]."Id$eW[?5iujWpW[ZqBQ$PE+f"SPZ?DXg*2OS7N*OXb=Z/Ccr?kSGHs1]!d=^:9H^255GS%f7SqHBG.f8"]BVm5MZYZ:BuD:fYK[Ut;=q%qPIC\7j/_R<589>tK`8L\f)Y?HPN=[4BaPAcRo>aipUjJ4`eh]_'ih44Sd08al/Er~>endstream
+endobj
+30 0 obj
+<<
+/Filter [ /ASCII85Decode /FlateDecode ] /Length 954
+>>
+stream
+GauHKmr-o6&H0m]EJh-'SMZ,k.of#>Z&VRMPdZZRWg#/k\DT9%1Y\U5[/^"s.$V-WG1W]9_1t/9h7\/Z\TgqO?a'5F,lh9RE)/Uc.M,j;=$nhN]$LpZ5>'cWZ;sG+YO:#9k+R4<<j&BBV%;aZ>VhsZ.7nWA3A-R)3$4L:*PF=e?`tXqJjb`#Tn03O(*>CL,eK`FKR8%Wgd(@+#<Mo5XAjT1_16C6_p;LWdhN`qFdT$FdHMRR%@$*k"t\p^E\M^Q&Fs(fR#I988/+SPrn`a2F%J@)VBgbPZRLk>f2=H]m&eBWcQ]G7HrW*#nk;[pZ8mN$gqd'G%<jCOnETm(r.QE^Z4W,=5]W<R_d0&!PhcD0&4i2lO_7gujL/+b`FTEI22A`,/CcG5@OsnX-fiXr3))*!3>s_IO(15^4e-:$`@6g[^Q^9cFK5H-&s'!,_jEhm9M554U_.V_PJar&7#<[rBtuK(5&W[_W>"K(4.EAjju/&I>j\n!5a\_N<B1g>KQLW;els1A.VVm!\>+'GXj3./[TUs6fDpeemRdBQGRc7s`oFJiUO/KdojheG(Ojr)IOV.eU<P^YYd4Gc):2>g[+PXCUS#WeUgk8;L.;:nF^Z!lj=-[0)D=d$G`W>.F4I9;cXkH6f[i=$?3%i*]oUa\=Hu5mlUIj5aV^@jj'/qdT1rW@l^M/6k5%PsBf@dl6dG*.AcqhZ5J)GHYLU<)F9W:W)EqE7qjipGqlA]:BfkO&NX'OSlWtH6@'QFSfVE9L4Z"<AMJ6h1J>a4D'_>NQf1fc-$C^BP+E(rB6(TX!HiKck%1CLZ/n.Ce,tj<8$I4LPH)_VpUGg-bbXS&AJoF`.pQ[*TM#3(]<h\S'eG!#.S-^\0PQ2X0_P^L6QATn6X2R)j+Y&A!MbWrfIZfn:/1:9JXkoe4rc2(^_e<emH)opjkkRED#HiAq]I6)12[.G'kP~>endstream
+endobj
+31 0 obj
+<<
+/Filter [ /ASCII85Decode /FlateDecode ] /Length 810
+>>
+stream
+Gb!kr>>O!-'RnB33/TPlSMms.??TaN70<i&&4;TROr$&@/V_1R[TaFTrqh^+-uIQmRD]3UdO97>mp(7Sn!l:f/q'J51X,r\@d'=M&FDbGJZ-V8&>-dY*8C_F'=-5$h5ER)_qs<-q_[Z%=n(k-i'a')4,;gY)]j);BJU+=@C2!@hs7Tl`&YfhLB60(6&'46A$hp"9%n-<D]jL9%Jg.bKm(8p>\8AR@JI@]jIfEk4p.fNj27=q=45r/i(CdYV.^j8b*=i8`si(dFb,%'N8Z(HG4D-1C?rbPcUo]>1Hsn=G_:<lhse^)Zr@M*n5fle1`Sj7!;pGss)lR,3"<E!dV8<]3PVJ&@t!2VeUQ\0c1Ct4J^IC2+Hs?Xge"VkGLgO9@9NSp_!phi>Ga*g7^04na<V+[UQH5)\=72f^b`)(KLQ?,C7/hu`u-#98smhei&T4dp&Q/1f1Mo&")U<^]`kBmRA2&8E_!kH^r\bn1*jV4c-\Rjq]_M2iCCsLU`$Z8Jhm3=3a%,YQ)j'^i!4IrP'/fBZ=]I_A@)Z@X/lZNi:K$\-G1su,or"@QR)jIa4q:J>(IpP$_ul_T_US0kq-c8k_r4&M]B__S9&b0mL5@lhNs=5+b_?p1u(aBZOQ^371NmdF\JrZ=[=qX\I2:;8D7&m*-AVn-#FP;Q#g\==-sf,gnCeW^"GtVqW0!nh,%hN4D>Qe9RR;Tb%"DBJ,@nL%(:%lHM@l4[(e6N*nR3Z)C/0bC$jJd.<IWBh9Mn]N\g=NU[hA0Xj@V9>aa_GRi,2$aeX&5.LPAZXotN7S3I)]rW%7T>&s~>endstream
+endobj
+xref
+0 32
+0000000000 65535 f 
+0000000061 00000 n 
+0000000132 00000 n 
+0000000239 00000 n 
+0000000351 00000 n 
+0000000456 00000 n 
+0000000539 00000 n 
+0000000744 00000 n 
+0000000949 00000 n 
+0000001154 00000 n 
+0000001231 00000 n 
+0000001437 00000 n 
+0000001643 00000 n 
+0000001849 00000 n 
+0000002055 00000 n 
+0000002261 00000 n 
+0000002467 00000 n 
+0000002673 00000 n 
+0000002879 00000 n 
+0000002949 00000 n 
+0000003230 00000 n 
+0000003362 00000 n 
+0000004545 00000 n 
+0000005605 00000 n 
+0000006809 00000 n 
+0000008015 00000 n 
+0000008966 00000 n 
+0000010257 00000 n 
+0000011264 00000 n 
+0000012382 00000 n 
+0000013297 00000 n 
+0000014342 00000 n 
+trailer
+<<
+/ID 
+[<8ed4e0b331de804e179a8a98515356a9><8ed4e0b331de804e179a8a98515356a9>]
+% ReportLab generated PDF document -- digest (opensource)
+
+/Info 19 0 R
+/Root 18 0 R
+/Size 32
+>>
+startxref
+15243
+%%EOF
+18 1 obj
+<<
+/PageMode /UseNone /Pages 20 0 R /Type /Catalog
+ /AF [33 0 R] /Names << /EmbeddedFiles << /Names [(Content Credentials) 33 0 R] >> >> >>
+endobj
+32 0 obj
+<< /Length 20164 /F << /Subtype (application/c2pa) /Length 20164 >> >>
+stream
+  Nƒjumb   jumdc2pa  Ä  ™ 8õqc2pa   Nûjumb   Gjumdc2ma  Ä  ™ 8õqurn:c2pa:35f85b47-6055-4a5e-97f9-7a1a683d6b15   éjumb   )jumdc2as  Ä  ™ 8õqc2pa.assertions   	πjumb   #jumd@À2ªäHùß*÷ÙCic2pa.icon    bfdb image/svg+xml   	wbidb<svg width="716" height="716" viewBox="0 0 716 716" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M508.749 317.399C516.777 287.314 508.991 253.884 485.389 230.282C461.788 206.681 428.36 198.895 398.273 206.923C376.231 184.928 343.39 174.956 311.148 183.596C278.906 192.234 255.45 217.292 247.36 247.361C217.291 255.451 192.233 278.91 183.595 311.149C174.957 343.391 184.927 376.232 206.924 398.274C198.896 428.359 206.683 461.789 230.284 485.391C253.885 508.992 287.313 516.779 317.401 508.75C339.442 530.745 372.286 540.717 404.525 532.079C436.767 523.441 460.223 498.384 468.313 468.315C498.383 460.224 523.44 436.766 532.078 404.526C540.716 372.285 530.747 339.443 508.749 317.402V317.399ZM470.899 244.776C486.892 260.77 493.488 282.601 490.687 303.412L415.577 260.046C412.411 258.218 408.509 258.218 405.345 260.046L317.401 310.82V277.526C317.401 275.191 318.652 273.005 320.676 271.837L387.644 233.174C414.178 218.353 448.346 222.223 470.901 244.776H470.899ZM357.837 311.144L398.275 334.491V381.185L357.837 404.532L317.398 381.185V334.491L357.837 311.144ZM264.776 269.693C265.207 239.305 285.644 211.649 316.453 203.393C338.3 197.54 360.505 202.744 377.127 215.573L302.014 258.937C298.848 260.764 296.898 264.144 296.898 267.798V369.346L268.065 352.699C266.043 351.531 264.776 349.353 264.776 347.017V269.691V269.693ZM203.391 316.454C209.244 294.608 224.854 277.978 244.276 269.999V356.73C244.276 360.384 246.226 363.763 249.392 365.591L337.337 416.365L308.503 433.013C306.481 434.181 303.961 434.188 301.939 433.02L234.971 394.357C208.868 378.789 195.138 347.261 203.391 316.454ZM244.775 470.9C228.781 454.906 222.186 433.075 224.986 412.264L300.096 455.63C303.263 457.457 307.164 457.457 310.328 455.63L398.273 404.856V438.149C398.273 440.485 397.022 442.671 394.997 443.839L328.029 482.502C301.495 497.322 267.327 493.452 244.772 470.9H244.775ZM450.897 445.982C450.466 476.371 430.029 504.027 399.22 512.283C377.373 518.136 355.168 512.932 338.547 500.102L413.659 456.738C416.826 454.911 418.775 451.532 418.775 447.877V346.329L447.609 362.977C449.631 364.145 450.897 366.323 450.897 368.659V445.985V445.982ZM512.282 399.221C506.429 421.068 490.819 437.697 471.397 445.676V358.946C471.397 355.292 469.448 351.912 466.281 350.085L378.336 299.311L407.17 282.663C409.192 281.495 411.712 281.487 413.734 282.655L480.702 321.318C506.805 336.887 520.536 368.415 512.282 399.221Z" fill="black"/>
+</svg>
+   jumb   )jumdcbor  Ä  ™ 8õqc2pa.actions.v2    œcbor°gactionsÅ§factionlc2pa.createdqdigitalSourceTypexFhttp://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMediamsoftwareAgent¢dnameggpt-5-6gversionggpt-5-6dwhenx2026-08-23T10:40:20.518980Z   §jumb   (jumdcbor  Ä  ™ 8õqc2pa.hash.data    tcbor•jexclusionsÅ¢estart?÷flengthNƒdnamenjumbf manifestcalgfsha256dhashX y⁄∏|Ùx≈‘∂G∑Ï‚˝ld‹EYÆt,™Èsa¡Ê¢Rcpad@  âjumb   'jumdc2cl  Ä  ™ 8õqc2pa.claim.v2   Zcbor¶jinstanceIDx,xmp:iid:0958c24e-5be5-4b2e-8b00-acaa7606e8c7tclaim_generator_info£dnamegChatGPTdicon¢curlx$self#jumbf=c2pa.assertions/c2pa.icondhashX u>=W1í≥®NÎL˚¡åt∑'w÷–6«e6„ÒkspecVersione2.2.0isignaturexMself#jumbf=/c2pa/urn:c2pa:35f85b47-6055-4a5e-97f9-7a1a683d6b15/c2pa.signaturercreated_assertionsÉ¢curlx$self#jumbf=c2pa.assertions/c2pa.icondhashX u>=W1í≥®NÎL˚¡åt∑'w÷–6«e6„Ò¢curlx*self#jumbf=c2pa.assertions/c2pa.actions.v2dhashX ≠€ë9∏9∑⁄¯EÌG’–ÕRo_~ãó≈–›Ë◊.¢curlx)self#jumbf=c2pa.assertions/c2pa.hash.datadhashX ø+6ñDïDÊ!i˚9±	^Ï1w˘]ÙŸb	®hdc:titleiimage.pdfcalgfsha256  @8jumb   (jumdc2cs  Ä  ™ 8õqc2pa.signature   @cbor“ÑYË¢8$!ÇYà0ÇÑ0Çl†•¸ÈpåÚÄ1ÓDds0	*ÜHÜ˜ 0J1!0USSL.com C2PA ICA R1 202510U
+SSL Corporation10	UUS0260422155105Z270423155104Z0G10	UUS10U
+OpenAI OpCo, LLC10UOpenAI Media Service0Ç"0	*ÜHÜ˜ Ç 0Ç
+Ç ù∫jLMóÍÅâ∂—æ^XNr°ôﬂiq|Â!#”Å¢5úL£J<Ôn+øÊdÆ◊ÑKi$ZcœÍv
+ê≤e€|<ç·˛¡3wØ'ﬁ; :¥cáòÕMúø¥3D™T07F∏˝öyDsWU£c|›¨X/ÊzÆﬁ•ò√ìNHZ¯‡|§íK’l∫ ¬*»íæu‘îgµW™jöm00,◊Uaåj“S∂ x^ECûNí£ÄÒØ[—≤Î˛ãÔ∫◊7	ï´d-ô…áö¯ø.–ÁcÄñöy†7ì6£5…H…,òcÈDõ5¨πßSlúhs»
+9ÃIÛ £Çg0Çc0Uˇ0 0U#0Ä9=G‹óèØà{MsÕÂÓ§•*0o+c0a09+0Ü-http://crt-c2pa.ssl.com/SSL.com-C2PA-I-R1.cer0$+0Ühttp://ocsp-c2pa.ssl.com0U 00
++ÉË^0)U%"0 ++$
++ÉË^0UÛùM‘Àùr¯F
+vG•hOt0Uˇ¿0	+ÉË^
++ÉË^
+03	+ÉË^&$019bc403-5cd7-7669-afe6-fdb17177d4280	*ÜHÜ˜ Ç Ç8óle°7 Ò˘Ìt∫’¶[5ıglœ+fi@Õı¸“rVﬂ ï(Í¯fﬁBC=¯x†h(â≠µÓ¸ı2“å∏_ÁlÄnÎ[|ó[0Á.B∏∆pö˛˛ 	¨5F’†åIEÄ√∫íU«Zùo“Îÿyõñ:ºDê44}ÙA•3ó/.lQR
+m=I∞À«ÜXÃ‹Óû.È∆9∏3\ ⁄Ó W3T.p(J%)Oí|.“˙›g.zËPx9Q∫É:⁄à~ê#êíıbXöÂ¬®sÜû≈ÿqÈÔ\d{ëÓ7/vòxVdÁoB—}íºÖjomdÖÿˇ"ñÌπÔ≤–\Ñ}h]5[K±≈iHyÊhé†ƒaò:L¯¿$yÂ¶h‡Ô˝÷ê÷.-AduV_ìî∂°úä<∂¿ËmÛ≈CÁv,h§ÚÊÀãàïË{*r$Å=!∆cm/%Ä£ô[™)•˝GÍ·˜kÂ˚[P&m+°Ç]1ı›b®|2‹L«•,r0PÄWìÇ‚ËÆ≥ßØY4ÆrÔ*ùÆx¨‚3ÏSµ…ô“(®*7°N´¸Ã~Xõ'mE·¥*úΩ0W°1. .…‚»T€°íOæ$5ò˛/i‹∏M„ﬁ/Ëlı¡ä‚”˛rw”®+‘WóÆáÿ æì∂âYS0ÇO0Ç7†'+c»ÃM-õÑQrlÙú^2QÆﬁ0	*ÜHÜ˜ 0O1&0$USSL.com C2PA RSA Root CA 202510U
+SSL Corporation10	UUS0251222181730Z301221181730Z0J1!0USSL.com C2PA ICA R1 202510U
+SSL Corporation10	UUS0Ç"0	*ÜHÜ˜ Ç 0Ç
+Ç À:¥Õ∏úÀ)V∏yß¯kˆ˘ÿèr√¶ò≠*A⁄a.GRΩtQæ]ÏzÇ∂¿˚˙Ë'•ãË˛bÛ`Ò_H ssï‰NnÃNz5ﬁX·◊Ç‹“GCwõﬂHàyü£9§YN^‡NGóÚuB◊v=∂§"‹Ì∆o‘rFå÷Q«µ∑zÚì˘#'’ÄPuäp†hÈÁºÑ(|ú*Í)©¿/˛…vFU∞/cÍ}ûÙ∞D§@ﬁ@6\DäTkWHˇªo§’Íé¬◊|ÿºŒiø† MìE;ô.y“œûü)ªFŸxc0ñ3Qú^ìm˙Â4JXx≥)l]|∏uï<ôw!{ÿ¥JÎ⁄Õ«
+÷…¢ﬁÆó≥∂Qñ⁄íõ√≤ªPƒ˛∂§Lï]-íjObÂ‡*˜i†ú’πì ⁄—ª^O∆Ø˘)L–…ÏÎÛ≤qP{v'hë˘Pà∏w5ÿÕ°·◊”)ÁJ∆áTY$¬g≤m	5€∫Œ∏F•‡ã⁄·ßüjŒ`“ƒ˜¡ﬁsyU‡p¥ÔÍÃ«˛vâNf
+ià-Ì√F¢*‰å‘úWF-Xb’ ®˙~¯¬ŸajÀ5]†ì£≤e®/ÌÔòÁ¸~∫HÙ™°q¸ìØÍßNsài’B¿˘ÑíÖOÀT≥=:¯›)ey Cûñ∏áXñ!Ô—ë{ £Ç&0Ç"0Uˇ0ˇ 0Uˇ0)U%"0 ++$
++ÉË^0U9=G‹óèØà{MsÕÂÓ§•*0U 00
++ÉË^0U#0Ä¸*Ju:Ä˙ôcìsWÏæì∞}√{0x+l0j0$+0Ühttp://ocsp-c2pa.ssl.com0B+0Ü6http://crt-c2pa.ssl.com/SSL.com-C2PA-Root-2025-RSA.cer0	*ÜHÜ˜ Ç Œ6˙>Ôñ6-éØUfˇ{+ kVıÀ≠Ω*Å≠•¶–M£>ì‰ìi’‰å®nÊ7T‚%úÏef(<3=¢ö¢ªÕgdJÁæt!°n√´&ƒ;,⁄Uπ˝GN‡çxõ7Éƒt;≈GaÔmAr§€]CS…ñNÂ‡:ﬂ®›.—ØXó÷ÁÙ_r#<kœΩ9´åì®èßvY>·íı˜Ÿ˚Fb´nn‘àF†≥/*j_•N⁄¯‘¸ÃŸ£<©wE
+¡˘òπ9ÀÃ°q¿*Çq”‰ˆ%‚Q!m÷ﬂ‰SçoJ}é^¿∫’wy!ÅzŒÌ˜õé∂≤äBVùèkA*˛kúãÓ£(œ_ÛÈ–d÷Ó¬âKÎíœıØ¬'M∏ë°7%ôÊ˝Ä‹Ùº«7{æ¥-gX/Á√≥ãqÂDz0∂•≤u>[#~;”T¶:π«Ã3’j5zÅv/˛W⁄i¯>?ÔTèã{F√cû˙Ìƒ/pÑ+ˆVÇÙßÀ$◊l^${:Ω©X;i≥úè“ptˇãn&ª√´E«SñúGµ∆F´^ı¸àãh£5Â|jïeµ´Îπˇ∫∏‡õJG≤ŒÏ/â}ÓØúMƒ…Œı2=è˜&4˛"ãzÌ˘^^g_Q[€$V˚—Y°∑ﬁöf	∂—Ü.˙}~ïyõDf|6Öˆı°cpadY3                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       ˆY $˜1
+ÕÜ“ r¶ kühÍIÇ¸–Ë"£h◊f˘%cÖê%ñ‚MŸ1]¯^∫yA◊≠Aàbq¿Êπq2˜\Ù∂Â´ÁœÀm∫Ôiﬂpj;e€kñ∆≈∂•§∆	ÓhÍ,(ÉèÇÉÎõO\jÏBã¯ä˘§K°\«%§áBÍßiÁqrj	6ã2/ûoàqz§! ∫2A]ã<Í>,ºmZ>Q€öJ®|˙Ftéùî¸ÒmΩ|2G≈r†~í∫ˇÁL¸"`]ÉS¬ëÁç≥t,Tv_2¶\Q&àRx∆dbßm´pˆ»π"ã^•Øüµêl÷#£3JHï¶Æ≠
+endstream
+endobj
+33 0 obj
+<< /AFRelationship /C2PA_Manifest /Desc (Content Credentials) /F (Content Credentials) /EF << /F 32 0 R >> /Subtype (application/c2pa) /Type /FileSpec /UF (Content Credentials) >>
+endobj
+xref
+18 1
+0000016099 00001 n 
+32 2
+0000016255 00000 n 
+0000036524 00000 n 
+trailer
+<< /Size 34 /Root 18 1 R /Prev 15243 /ID [<8ed4e0b331de804e179a8a98515356a9><8ed4e0b331de804e179a8a98515356a9>] >>
+startxref
+36720
+%%EOF
