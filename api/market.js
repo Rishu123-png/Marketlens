@@ -19,7 +19,7 @@ export default async function handler(req, res) {
   if (!key) return json(res, 503, { error: 'FMP_API_KEY is not configured in Vercel.' });
   try {
     // FMP uses its documented stable quote endpoint. Indian-symbol support depends on the account/plan.
-    const url = `https://financialmodelingprep.com/stable/quote?symbol=${encodeURIComponent(symbol)}&apikey=${encodeURIComponent(key)}`;
+    const url = `https://financialmodelingprep.com/api/v3/quote/${encodeURIComponent(symbol)}?apikey=${encodeURIComponent(key)}`;
     const data = await fetchJson(url);
     if (!Array.isArray(data) || !data.length) return json(res, 404, { error: `No quote returned for ${symbol}. Check the provider symbol format and market coverage.` });
     return json(res, 200, normalizeFmpQuote(data[0], symbol));
