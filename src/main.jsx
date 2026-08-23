@@ -18,11 +18,16 @@ const symbols = [
 ];
 
 const money = (value) => {
-  if (value === null || value === undefined) {
-    return "—";
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return "Not verified";
   }
 
-  return `₹${Number(value).toLocaleString(
+  return `₹${Number(
+    value
+  ).toLocaleString(
     "en-IN",
     {
       maximumFractionDigits: 2
@@ -31,13 +36,18 @@ const money = (value) => {
 };
 
 const pct = (value) => {
-  if (value === null || value === undefined) {
-    return "—";
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return "Not verified";
   }
 
   const number = Number(value);
 
-  return `${number > 0 ? "+" : ""}${number.toFixed(2)}%`;
+  return `${
+    number > 0 ? "+" : ""
+  }${number.toFixed(2)}%`;
 };
 
 function App() {
@@ -64,80 +74,76 @@ function App() {
     setError("");
 
     try {
-      const results =
-        await Promise.allSettled(
-          symbols.map(async (symbol) => {
-            const response =
-              await fetch(
-                `/api/market?symbol=${encodeURIComponent(
-                  symbol
-                )}`
-              );
+      // Sequential loading prevents all five
+      // stocks from hitting fallback APIs at once.
+      const successful = [];
+      const failed = [];
 
-            const data =
-              await response.json();
+      for (const symbol of symbols) {
+        try {
+          const response =
+            await fetch(
+              `/api/market?symbol=${encodeURIComponent(
+                symbol
+              )}`
+            );
 
-            if (!response.ok) {
-              const details =
-                Array.isArray(data.details)
-                  ? data.details
-                      .map((item) => {
-                        if (
-                          typeof item === "string"
-                        ) {
-                          return item;
-                        }
+          const data =
+            await response.json();
 
-                        return `${item.provider}: ${item.message}`;
-                      })
-                      .join(" | ")
-                  : "";
+          if (!response.ok) {
+            throw new Error(
+              data.error ||
+              "Market data unavailable"
+            );
+          }
 
-              throw new Error(
-                details ||
-                  data.error ||
-                  "Market data unavailable"
-              );
-            }
+          successful.push(data);
 
-            return data;
-          })
-        );
-
-      const successful =
-        results
-          .filter(
-            (result) =>
-              result.status ===
-              "fulfilled"
-          )
-          .map(
-            (result) => result.value
+          // Small delay between symbols.
+          await new Promise(
+            (resolve) =>
+              setTimeout(resolve, 700)
           );
-
-      const failed =
-        results
-          .filter(
-            (result) =>
-              result.status ===
-              "rejected"
-          )
-          .map(
-            (result) =>
-              result.reason?.message
-          )
-          .filter(Boolean);
+        } catch (stockError) {
+          failed.push(
+            stockError instanceof Error
+              ? stockError.message
+              : `${symbol} unavailable`
+          );
+        }
+      }
 
       setStocks(successful);
+
+      const verifiedCount =
+        successful.filter(
+          (stock) =>
+            stock.mode === "verified"
+        ).length;
+
+      const researchCount =
+        successful.filter(
+          (stock) =>
+            stock.mode === "research"
+        ).length;
 
       if (successful.length === 0) {
         setError(
           failed[0] ||
-            "No market-data provider returned usable quotes."
+          "No stock information could be loaded."
         );
-      } else if (failed.length > 0) {
+      } else if (
+        researchCount > 0
+      ) {
         setError(
-          `${successful.length} of ${symbols.length} stocks loaded. Some symbols are temporarily unavailable.`
+          `${verifiedCount} of ${symbols.length} stocks have verified provider quotes. ${researchCount} stock(s) are in AI Research Mode because a live quote could not be verified.`
+        );
+      } else if (
+        failed.length > 0
+      ) {
+        setError(
+          `${successful.length} of ${symbols.length} stocks loaded. Some requests are temporarily unavailable.`
         );
       }
     } catch (loadError) {
@@ -146,7 +152,7 @@ function App() {
       setError(
         loadError instanceof Error
           ? loadError.message
-          : "Market data unavailable."
+          : "Unable to load stock information."
       );
     } finally {
       setLoading(false);
@@ -159,14 +165,27 @@ function App() {
     }
   }, [started]);
 
-  const filtered = stocks.filter(
-    (stock) =>
-      (stock.symbol || "")
-        .toLowerCase()
-        .includes(
-          query.toLowerCase()
-        )
-  );
+  const filtered =
+    stocks.filter(
+      (stock) =>
+        (stock.symbol || "")
+          .toLowerCase()
+          .includes(
+            query.toLowerCase()
+          )
+    );
+
+  const verifiedCount =
+    stocks.filter(
+      (stock) =>
+        stock.mode === "verified"
+    ).length;
+
+  const researchCount =
+    stocks.filter(
+      (stock) =>
+        stock.mode === "research"
+    ).length;
 
   return (
     <div className="app">
@@ -205,8 +224,7 @@ function App() {
           ☰
         </button>
       </header>
-
-      {!started ? (
+  {!started ? (
         <main className="landing">
           <div className="eyebrow">
             <span className="pulse" />
@@ -223,10 +241,10 @@ function App() {
           </h1>
 
           <p className="hero-copy">
-            MarketLens brings available market
-            data, business fundamentals and market
-            context together — then explains what
-            matters in plain language.
+            MarketLens uses verified provider
+            quotes when available and clearly
+            labels AI research when a live quote
+            cannot be verified.
           </p>
 
           <div className="hero-actions">
@@ -260,8 +278,8 @@ function App() {
           </div>
 
           <div className="hero-note">
-            ◉ Provider data only · no invented
-            prices · availability may vary
+            ◉ Verified quotes when available ·
+            AI never invents a market price
           </div>
 
           <div className="orbit">
@@ -279,25 +297,25 @@ function App() {
               </small>
 
               <b>
-                Provider feeds
+                Verified quotes
               </b>
 
               <span className="muted">
-                Server verified
+                Provider-backed
               </span>
             </div>
 
             <div className="orb-card card-b">
               <small>
-                RESEARCH
+                AI RESEARCH
               </small>
 
               <b>
-                Explainable
+                Clear fallback
               </b>
 
               <span className="muted">
-                Risk before reward
+                No invented prices
               </span>
             </div>
           </div>
@@ -312,12 +330,12 @@ function App() {
               </span>
 
               <h3>
-                Connect
+                Verify
               </h3>
 
               <p>
-                Request market information from
-                configured providers.
+                Request quotes from configured
+                market-data providers.
               </p>
             </div>
 
@@ -327,12 +345,12 @@ function App() {
               </span>
 
               <h3>
-                Analyze
+                Fallback
               </h3>
 
               <p>
-                Use transparent calculations and
-                verified inputs.
+                Try another provider if the first
+                one cannot return a usable quote.
               </p>
             </div>
 
@@ -342,12 +360,12 @@ function App() {
               </span>
 
               <h3>
-                Understand
+                Research
               </h3>
 
               <p>
-                Review scenarios, risks and
-                context in simple language.
+                Use AI research only when live
+                market data cannot be verified.
               </p>
             </div>
           </section>
@@ -359,7 +377,7 @@ function App() {
               <div className="eyebrow">
                 MARKET OVERVIEW
                 <span className="live-dot" />
-                PROVIDER RESPONSE
+                DATA + RESEARCH
               </div>
 
               <h1>
@@ -367,8 +385,8 @@ function App() {
               </h1>
 
               <p>
-                Available information from your
-                configured market-data providers.
+                Verified quotes are clearly
+                separated from AI research mode.
               </p>
             </div>
 
@@ -392,18 +410,21 @@ function App() {
               className="search"
               value={query}
               onChange={(event) =>
-                setQuery(event.target.value)
+                setQuery(
+                  event.target.value
+                )
               }
               placeholder="Search loaded symbols..."
             />
           </div>
-
-          {error && (
+  {error && (
             <div className="api-error">
               <b>
-                {stocks.length > 0
+                {researchCount > 0
+                  ? "Mixed data mode"
+                  : stocks.length > 0
                   ? "Partial market data"
-                  : "Market data unavailable"}
+                  : "Information unavailable"}
               </b>
 
               <span>
@@ -411,16 +432,18 @@ function App() {
               </span>
 
               <small>
-                API quota, market coverage,
-                exchange symbol support and provider
-                availability can affect results.
+                AI Research Mode is not a live
+                market quote and does not generate
+                prices or other unverified
+                time-sensitive values.
               </small>
             </div>
           )}
 
           {loading && (
             <div className="loading">
-              Fetching market data…
+              Loading provider data and research
+              fallback…
             </div>
           )}
 
@@ -428,10 +451,9 @@ function App() {
             stocks.length > 0 && (
               <>
                 <div className="data-banner">
-                  ● PROVIDER RESPONSE · Received:{" "}
-                  {new Date(
-                    stocks[0].updatedAt
-                  ).toLocaleString()}
+                  ● VERIFIED QUOTES:{" "}
+                  {verifiedCount} · AI RESEARCH:{" "}
+                  {researchCount}
                 </div>
 
                 <div className="content-grid">
@@ -439,12 +461,13 @@ function App() {
                     <div className="panel-head">
                       <div>
                         <h2>
-                          Loaded stocks
+                          Stock information
                         </h2>
 
                         <p>
-                          Quotes returned by
-                          available providers
+                          Verified quotes are
+                          distinguished from
+                          research-only results.
                         </p>
                       </div>
                     </div>
@@ -472,30 +495,41 @@ function App() {
                               </b>
 
                               <small>
-                                Provider:{" "}
-                                {stock.source}
+                                {stock.mode ===
+                                "verified"
+                                  ? `Verified quote: ${stock.source}`
+                                  : "AI Research Mode · live quote unavailable"}
                               </small>
                             </div>
 
                             <div className="stock-price">
                               <b>
-                                {money(
-                                  stock.price
-                                )}
+                                {stock.mode ===
+                                "verified"
+                                  ? money(
+                                      stock.price
+                                    )
+                                  : "Research"}
                               </b>
 
                               <span
                                 className={
-                                  Number(
-                                    stock.changePercent
-                                  ) >= 0
-                                    ? "up"
-                                    : "down"
+                                  stock.mode ===
+                                  "verified"
+                                    ? Number(
+                                        stock.changePercent
+                                      ) >= 0
+                                      ? "up"
+                                      : "down"
+                                    : ""
                                 }
                               >
-                                {pct(
-                                  stock.changePercent
-                                )}
+                                {stock.mode ===
+                                "verified"
+                                  ? pct(
+                                      stock.changePercent
+                                    )
+                                  : "No price generated"}
                               </span>
                             </div>
 
@@ -505,8 +539,7 @@ function App() {
                           </button>
                         )
                       )}
-
-                      {filtered.length === 0 && (
+{filtered.length === 0 && (
                         <div className="empty">
                           No loaded symbol matches
                           your search.
@@ -523,8 +556,8 @@ function App() {
                         </h2>
 
                         <p>
-                          Always inspect freshness
-                          and coverage
+                          Know what type of
+                          information you are seeing.
                         </p>
                       </div>
                     </div>
@@ -533,23 +566,35 @@ function App() {
                       <span className="quality-dot" />
 
                       <b>
-                        Provider response received
+                        {verifiedCount > 0
+                          ? "Provider data received"
+                          : "Research fallback active"}
                       </b>
                     </div>
 
                     <div className="quality-line">
                       <span>
-                        Source
+                        Verified quotes
                       </span>
 
                       <b>
-                        {stocks[0].source}
+                        {verifiedCount}
                       </b>
                     </div>
 
                     <div className="quality-line">
                       <span>
-                        Quotes loaded
+                        Research fallback
+                      </span>
+
+                      <b>
+                        {researchCount}
+                      </b>
+                    </div>
+
+                    <div className="quality-line">
+                      <span>
+                        Total loaded
                       </span>
 
                       <b>
@@ -557,32 +602,17 @@ function App() {
                       </b>
                     </div>
 
-                    <div className="quality-line">
-                      <span>
-                        Fallback used
-                      </span>
-
-                      <b>
-                        {stocks.some(
-                          (stock) =>
-                            stock.fallbackUsed
-                        )
-                          ? "Yes"
-                          : "No"}
-                      </b>
-                    </div>
-
                     <div className="tip">
                       <b>
-                        Research note
+                        Important
                       </b>
 
                       <p>
-                        A positive price move is not
-                        a recommendation. Check
-                        fundamentals, valuation,
-                        liquidity and risk before
-                        acting.
+                        Research mode is useful for
+                        understanding a company, but
+                        a current price must come
+                        from a verified market-data
+                        source.
                       </p>
                     </div>
                   </aside>
@@ -594,15 +624,15 @@ function App() {
             !stocks.length &&
             !error && (
               <div className="empty">
-                No provider data returned.
+                No information could be loaded.
               </div>
             )}
 
           <div className="disclaimer">
             MarketLens is a research and education
-            tool. It does not guarantee returns or
-            provide personalized investment advice.
-            Market investments are subject to risk.
+            tool. AI research is not a verified
+            live quote and is not personalized
+            investment advice.
           </div>
         </main>
       )}
@@ -643,86 +673,192 @@ function App() {
               ×
             </button>
 
-            <div className="eyebrow">
-              PROVIDER QUOTE ·{" "}
-              {selected.symbol}
-            </div>
+            {selected.mode ===
+            "verified" ? (
+              <>
+                <div className="eyebrow">
+                  VERIFIED QUOTE ·{" "}
+                  {selected.symbol}
+                </div>
 
-            <h2>
-              {selected.symbol}
-            </h2>
+                <h2>
+                  {selected.symbol}
+                </h2>
 
-            <div className="modal-price">
-              {money(selected.price)}
-
-              <span
-                className={
-                  Number(
-                    selected.changePercent
-                  ) >= 0
-                    ? "up"
-                    : "down"
-                }
-              >
-                {pct(
-                  selected.changePercent
-                )}
-              </span>
-            </div>
-
-            <div className="report">
-              <b>
-                Provider data
-              </b>
-
-              <div className="metrics">
-                <span>
-                  <small>
-                    Open
-                  </small>
-
-                  <b>
-                    {money(
-                      selected.open
+                <div className="modal-price">
+                  {money(selected.price)}
+   <span
+                    className={
+                      Number(
+                        selected.changePercent
+                      ) >= 0
+                        ? "up"
+                        : "down"
+                    }
+                  >
+                    {pct(
+                      selected.changePercent
                     )}
-                  </b>
-                </span>
+                  </span>
+                </div>
 
-                <span>
-                  <small>
-                    Day high
-                  </small>
-
+                <div className="report">
                   <b>
-                    {money(
-                      selected.dayHigh
-                    )}
+                    Verified provider data
                   </b>
-                </span>
 
-                <span>
-                  <small>
-                    Volume
-                  </small>
+                  <div className="metrics">
+                    <span>
+                      <small>
+                        Open
+                      </small>
 
+                      <b>
+                        {money(
+                          selected.open
+                        )}
+                      </b>
+                    </span>
+
+                    <span>
+                      <small>
+                        Day high
+                      </small>
+
+                      <b>
+                        {money(
+                          selected.dayHigh
+                        )}
+                      </b>
+                    </span>
+
+                    <span>
+                      <small>
+                        Volume
+                      </small>
+
+                      <b>
+                        {selected.volume !=
+                        null
+                          ? Number(
+                              selected.volume
+                            ).toLocaleString(
+                              "en-IN"
+                            )
+                          : "—"}
+                      </b>
+                    </span>
+                  </div>
+
+                  <p>
+                    Source:{" "}
+                    {selected.source}
+                  </p>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="eyebrow">
+                  AI RESEARCH MODE ·{" "}
+                  {selected.symbol}
+                </div>
+
+                <h2>
+                  {selected.symbol}
+                </h2>
+
+                <div className="modal-price">
+                  Live quote unavailable
+                </div>
+
+                <div className="report">
                   <b>
-                    {selected.volume != null
-                      ? Number(
-                          selected.volume
-                        ).toLocaleString(
-                          "en-IN"
+                    {selected.research
+                      ?.company ||
+                      "Research fallback"}
+                  </b>
+
+                  <p>
+                    {selected.research
+                      ?.summary ||
+                      "No research summary was returned."}
+                  </p>
+
+                  <div className="metrics">
+                    <span>
+                      <small>
+                        Business
+                      </small>
+
+                      <b>
+                        {selected.research
+                          ?.business ||
+                          "Not available"}
+                      </b>
+                    </span>
+                  </div>
+
+                  <p>
+                    <b>
+                      Strengths to research:
+                    </b>
+                  </p>
+
+                  <p>
+                    {Array.isArray(
+                      selected.research
+                        ?.strengths
+                    )
+                      ? selected.research.strengths.join(
+                          " • "
                         )
-                      : "—"}
-                  </b>
-                </span>
-              </div>
+                      : "Not available"}
+                  </p>
 
-              <p>
-                AI research reports should only use
-                verified metrics returned by market
-                data providers.
-              </p>
-            </div>
+                  <p>
+                    <b>
+                      Risks to research:
+                    </b>
+                  </p>
+
+                  <p>
+                    {Array.isArray(
+                      selected.research
+                        ?.risks
+                    )
+                      ? selected.research.risks.join(
+                          " • "
+                        )
+                      : "Not available"}
+                  </p>
+
+                  <p>
+                    <b>
+                      What to monitor:
+                    </b>
+                  </p>
+
+                  <p>
+                    {Array.isArray(
+                      selected.research
+                        ?.whatToMonitor
+                    )
+                      ? selected.research.whatToMonitor.join(
+                          " • "
+                        )
+                      : "Not available"}
+                  </p>
+
+                  <p>
+                    <small>
+                      {selected.research
+                        ?.researchStatus ||
+                        "Research fallback — live quote unavailable and no market price has been generated."}
+                    </small>
+                  </p>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
