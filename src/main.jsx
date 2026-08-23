@@ -711,11 +711,6 @@ const data =
                       <b>
                         Important
                       </b>
-    <div className="tip">
-                      <b>
-                        Important
-                      </b>
-
                       <p>
                         Groq does not act as a
                         market-price provider. It
