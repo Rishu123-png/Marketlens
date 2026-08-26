@@ -31,6 +31,12 @@ export default function handler(
       configured: Boolean(
         process.env.NEWS_API_KEY
       )
+    },
+
+    finnhub: {
+      configured: Boolean(
+        process.env.FINNHUB_API_KEY
+      )
     }
   };
 
