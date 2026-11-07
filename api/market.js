@@ -393,130 +393,77 @@ async function fetchAlpha(
   throw new Error(lastError);
 }
 
-export default async function handler(
-  req,
-  res
-) {
-  const symbol = String(
-    req.query?.symbol || ""
-  )
+export async function getVerifiedQuote(symbol, exchange = "") {
+  const normalizedSymbol = String(symbol || "")
+    .trim()
+    .toUpperCase();
+  const normalizedExchange = String(exchange || "")
     .trim()
     .toUpperCase();
 
-  const exchange = String(
-    req.query?.exchange || ""
-  )
-    .trim()
-    .toUpperCase();
-
-  if (!symbol) {
-    return send(res, 400, {
-      error:
-        "A stock symbol is required."
-    });
+  if (!/^[A-Z0-9._:-]{1,40}$/.test(normalizedSymbol)) {
+    const error = new Error("Invalid stock symbol.");
+    error.statusCode = 400;
+    throw error;
   }
 
-  if (
-    !/^[A-Z0-9._:-]{1,40}$/.test(
-      symbol
-    )
-  ) {
-    return send(res, 400, {
-      error: "Invalid stock symbol."
-    });
-  }
-
-  const cacheKey =
-    `${symbol}|${exchange}`;
-
-  const cached =
-    cache.get(cacheKey);
-
-  if (
-    cached &&
-    Date.now() - cached.createdAt <
-      CACHE_TTL_MS
-  ) {
-    return send(res, 200, {
-      ...cached.data,
-      cached: true
-    });
+  const cacheKey = `${normalizedSymbol}|${normalizedExchange}`;
+  const cached = cache.get(cacheKey);
+  if (cached && Date.now() - cached.createdAt < CACHE_TTL_MS) {
+    return { ...cached.data, cached: true };
   }
 
   const providers = {
-    fmp: () =>
-      fetchFmp(
-        symbol,
-        exchange
-      ),
-
-    twelve: () =>
-      fetchTwelve(
-        symbol,
-        exchange
-      ),
-
-    alpha: () =>
-      fetchAlpha(
-        symbol,
-        exchange
-      )
+    fmp: () => fetchFmp(normalizedSymbol, normalizedExchange),
+    twelve: () => fetchTwelve(normalizedSymbol, normalizedExchange),
+    alpha: () => fetchAlpha(normalizedSymbol, normalizedExchange)
   };
-
-  const providerOrder =
-    getProviderOrder();
-
+  const providerOrder = getProviderOrder();
   const errors = [];
 
-  for (
-    let index = 0;
-    index < providerOrder.length;
-    index += 1
-  ) {
-    const provider =
-      providerOrder[index];
-
+  for (let index = 0; index < providerOrder.length; index += 1) {
+    const provider = providerOrder[index];
     try {
-      const quote =
-        await providers[provider]();
-
+      const quote = await providers[provider]();
+      if (quote.quoteVerified !== true || quote.price === null) {
+        throw new Error(`${provider} returned no verified price.`);
+      }
       const data = {
         ...quote,
-
         cached: false,
-
-        fallbackUsed:
-          index > 0,
-
+        fallbackUsed: index > 0,
         providerErrors: errors
       };
-
-      cache.set(cacheKey, {
-        data,
-        createdAt: Date.now()
-      });
-
-      return send(
-        res,
-        200,
-        data
-      );
+      cache.set(cacheKey, { data, createdAt: Date.now() });
+      return data;
     } catch (error) {
       errors.push({
         provider,
-
-        message:
-          error instanceof Error
-            ? error.message
-            : "Unknown provider error"
+        message: error instanceof Error ? error.message : "Unknown provider error"
       });
     }
   }
 
-  return send(res, 503, {
-    error:
-      "No configured provider could return a verified quote for this stock.",
+  const error = new Error("No configured provider could return a verified quote for this stock.");
+  error.statusCode = 503;
+  error.details = errors;
+  throw error;
+}
 
-    details: errors
-  });
+export default async function handler(req, res) {
+  const symbol = String(req.query?.symbol || "").trim().toUpperCase();
+  const exchange = String(req.query?.exchange || "").trim().toUpperCase();
+
+  if (!symbol) {
+    return send(res, 400, { error: "A stock symbol is required." });
+  }
+
+  try {
+    return send(res, 200, await getVerifiedQuote(symbol, exchange));
+  } catch (error) {
+    return send(res, error.statusCode || 503, {
+      error: error.message || "Market data unavailable.",
+      ...(error.details ? { details: error.details } : {})
+    });
+  }
 }

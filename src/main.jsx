@@ -247,36 +247,8 @@ function App() {
             },
             body: JSON.stringify({
               stock: {
-                symbol:
-                  selected.symbol,
-                name:
-                  selected.name ||
-                  selected.symbol,
-                exchange:
-                  selected.exchange ||
-                  ""
-              },
-              metrics: {
-                source:
-                  selected.source,
-                updatedAt:
-                  selected.updatedAt,
-                price:
-                  selected.price,
-                change:
-                  selected.change,
-                changePercent:
-                  selected.changePercent,
-                open:
-                  selected.open,
-                previousClose:
-                  selected.previousClose,
-                dayHigh:
-                  selected.dayHigh,
-                dayLow:
-                  selected.dayLow,
-                volume:
-                  selected.volume
+                symbol: selected.symbol,
+                exchange: selected.exchange || ""
               }
             })
           }
