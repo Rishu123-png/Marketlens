@@ -401,7 +401,7 @@ export async function getVerifiedQuote(symbol, exchange = "") {
     .trim()
     .toUpperCase();
 
-  if (!/^[A-Z0-9._:-]{1,40}$/.test(normalizedSymbol)) {
+  if (!/^[A-Z0-9._:&-]{1,40}$/.test(normalizedSymbol)) {
     const error = new Error("Invalid stock symbol.");
     error.statusCode = 400;
     throw error;

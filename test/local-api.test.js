@@ -11,6 +11,12 @@ test("local API adapter dispatches Vercel-style health routes", async () => {
     const payload = await response.json();
     assert.equal(response.status, 200);
     assert.equal(payload.service, "marketlens-api");
+
+    const universeResponse = await fetch(`http://127.0.0.1:${port}/api/universe`);
+    const universe = await universeResponse.json();
+    assert.equal(universeResponse.status, 200);
+    assert.equal(universe.count, 20);
+    assert.equal(universe.stocks[0].symbol, "RELIANCE");
   } finally {
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }

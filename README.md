@@ -1,6 +1,6 @@
 # MarketLens
 
-A React/Vite stock-analysis interface backed by serverless market-data and report APIs. Market data and AI output are informational only, not investment advice.
+A React/Vite Indian-equities market terminal backed by serverless market-data and report APIs. It opens directly to a curated list of 20 popular NSE stocks; search filters that list instantly, with provider search available for other symbols. Live prices appear only when returned by a configured market-data provider. Market data and AI output are informational only, not investment advice.
 
 ## Local development
 

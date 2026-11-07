@@ -12,7 +12,8 @@ const routes = new Set([
   "provider-status",
   "report",
   "search",
-  "top-stocks"
+  "top-stocks",
+  "universe"
 ]);
 const MAX_BODY_BYTES = 256 * 1024;
 

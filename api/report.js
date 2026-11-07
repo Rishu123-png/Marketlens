@@ -42,7 +42,7 @@ export default async function handler(
 
   const stock = req.body?.stock;
   const symbol = String(stock?.symbol || "").trim().toUpperCase();
-  if (!/^[A-Z0-9._:-]{1,40}$/.test(symbol)) {
+  if (!/^[A-Z0-9._:&-]{1,40}$/.test(symbol)) {
     return res.status(400).json({
       error: "A valid stock symbol is required."
     });
