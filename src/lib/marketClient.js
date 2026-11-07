@@ -37,8 +37,7 @@ export async function getMarketQuote(
 }
 
 export async function generateReport(
-  stock,
-  metrics
+  stock
 ) {
   const response =
     await fetch(
@@ -52,8 +51,7 @@ export async function generateReport(
         },
 
         body: JSON.stringify({
-          stock,
-          metrics
+          stock
         })
       }
     );

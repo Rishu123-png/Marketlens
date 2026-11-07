@@ -1,3 +1,6 @@
+import { getVerifiedQuote } from "./market.js";
+import { rateLimit } from "../lib/server/rateLimit.js";
+
 function numberOrNull(value) {
   if (
     value === null ||
@@ -14,12 +17,6 @@ function numberOrNull(value) {
     : null;
 }
 
-function cleanText(value, maxLength = 80) {
-  return String(value || "")
-    .trim()
-    .slice(0, maxLength);
-}
-
 export default async function handler(
   req,
   res
@@ -30,19 +27,24 @@ export default async function handler(
     });
   }
 
-  const {
-    stock,
-    metrics
-  } = req.body || {};
+  const quota = await rateLimit(req, {
+    name: "report",
+    limit: 5,
+    windowMs: 10 * 60 * 1000
+  });
+  if (!quota.allowed) {
+    res.setHeader?.("Retry-After", String(quota.retryAfterSeconds));
+    return res.status(429).json({
+      error: "Too many analysis requests. Please try again later.",
+      retryAfterSeconds: quota.retryAfterSeconds
+    });
+  }
 
-  if (
-    !stock ||
-    !metrics ||
-    typeof metrics !== "object"
-  ) {
+  const stock = req.body?.stock;
+  const symbol = String(stock?.symbol || "").trim().toUpperCase();
+  if (!/^[A-Z0-9._:&-]{1,40}$/.test(symbol)) {
     return res.status(400).json({
-      error:
-        "Verified stock data and metrics are required."
+      error: "A valid stock symbol is required."
     });
   }
 
@@ -56,64 +58,32 @@ export default async function handler(
     });
   }
 
+  let quote;
+  try {
+    // Never trust prices or source metadata sent by the browser. Fetch them
+    // independently from the configured provider gateway on the server.
+    quote = await getVerifiedQuote(symbol, stock.exchange || "");
+  } catch (error) {
+    return res.status(error.statusCode || 503).json({
+      error: "A fresh provider-verified quote is required for AI analysis.",
+      details: error.details || []
+    });
+  }
+
   const verifiedMetrics = {
-    symbol: cleanText(
-      stock.symbol,
-      40
-    ),
-
-    name: cleanText(
-      stock.name ||
-      stock.symbol,
-      120
-    ),
-
-    exchange: cleanText(
-      stock.exchange,
-      60
-    ),
-
-    source: cleanText(
-      metrics.source,
-      100
-    ),
-
-    updatedAt: cleanText(
-      metrics.updatedAt,
-      80
-    ),
-
-    price: numberOrNull(
-      metrics.price
-    ),
-
-    change: numberOrNull(
-      metrics.change
-    ),
-
-    changePercent: numberOrNull(
-      metrics.changePercent
-    ),
-
-    open: numberOrNull(
-      metrics.open
-    ),
-
-    previousClose: numberOrNull(
-      metrics.previousClose
-    ),
-
-    dayHigh: numberOrNull(
-      metrics.dayHigh
-    ),
-
-    dayLow: numberOrNull(
-      metrics.dayLow
-    ),
-
-    volume: numberOrNull(
-      metrics.volume
-    )
+    symbol: quote.symbol,
+    name: quote.name || symbol,
+    exchange: quote.exchange,
+    source: quote.source,
+    updatedAt: quote.updatedAt,
+    price: numberOrNull(quote.price),
+    change: numberOrNull(quote.change),
+    changePercent: numberOrNull(quote.changePercent),
+    open: numberOrNull(quote.open),
+    previousClose: numberOrNull(quote.previousClose),
+    dayHigh: numberOrNull(quote.dayHigh),
+    dayLow: numberOrNull(quote.dayLow),
+    volume: numberOrNull(quote.volume)
   };
 
   if (
@@ -199,50 +169,38 @@ Must state that the analysis used provider-backed metrics supplied by MarketLens
 `;
 
   try {
-    const response = await fetch(
-      "https://api.groq.com/openai/v1/chat/completions",
-      {
-        method: "POST",
-
-        headers: {
-          "Content-Type":
-            "application/json",
-
-          Authorization:
-            `Bearer ${apiKey}`
-        },
-
-        body: JSON.stringify({
-          model:
-            process.env.GROQ_MODEL ||
-            "llama-3.3-70b-versatile",
-
-          temperature: 0.1,
-
-          response_format: {
-            type: "json_object"
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20_000);
+    let response;
+    try {
+      response = await fetch(
+        "https://api.groq.com/openai/v1/chat/completions",
+        {
+          signal: controller.signal,
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`
           },
+          body: JSON.stringify({
+            model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+            temperature: 0.1,
+            response_format: { type: "json_object" },
+            messages: [
+              {
+                role: "system",
+                content: "You are a precise financial-data interpretation assistant. You never fabricate current market information and you never provide personalized investment advice."
+              },
+              { role: "user", content: prompt }
+            ]
+          })
+        }
+      );
+    } finally {
+      clearTimeout(timeout);
+    }
 
-          messages: [
-            {
-              role: "system",
-
-              content:
-                "You are a precise financial-data interpretation assistant. You never fabricate current market information and you never provide personalized investment advice."
-            },
-
-            {
-              role: "user",
-
-              content: prompt
-            }
-          ]
-        })
-      }
-    );
-
-    const data =
-      await response.json();
+    const data = await response.json();
 
     if (!response.ok) {
       return res.status(
@@ -291,8 +249,9 @@ Must state that the analysis used provider-backed metrics supplied by MarketLens
     });
   } catch (error) {
     return res.status(502).json({
-      error:
-        error instanceof Error
+      error: error?.name === "AbortError"
+        ? "AI analysis provider timed out. Please try again."
+        : error instanceof Error
           ? error.message
           : "Unable to generate AI analysis."
     });

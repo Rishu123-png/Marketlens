@@ -1,4 +1,11 @@
 {
-  "functions": { "api/market.js": { "maxDuration": 10 } },
-  "rewrites": [{ "source": "/api/market", "destination": "/api/market.js" }]
+  "functions": {
+    "api/market.js": { "maxDuration": 30 },
+    "api/report.js": { "maxDuration": 60 },
+    "api/search.js": { "maxDuration": 30 },
+    "api/top-stocks.js": { "maxDuration": 60 }
+  },
+  "rewrites": [
+    { "source": "/api/market", "destination": "/api/market.js" }
+  ]
 }

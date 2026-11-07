@@ -1,110 +1,9 @@
+import { STOCK_UNIVERSE } from "../lib/stock-universe.js";
+
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
 let cachedData = null;
 let cacheCreatedAt = 0;
-
-const CANDIDATES = [
-  {
-    symbol: "RELIANCE",
-    exchange: "NSE",
-    name: "Reliance Industries Ltd"
-  },
-  {
-    symbol: "TCS",
-    exchange: "NSE",
-    name: "Tata Consultancy Services Ltd"
-  },
-  {
-    symbol: "INFY",
-    exchange: "NSE",
-    name: "Infosys Ltd"
-  },
-  {
-    symbol: "HDFCBANK",
-    exchange: "NSE",
-    name: "HDFC Bank Ltd"
-  },
-  {
-    symbol: "ICICIBANK",
-    exchange: "NSE",
-    name: "ICICI Bank Ltd"
-  },
-  {
-    symbol: "SBIN",
-    exchange: "NSE",
-    name: "State Bank of India"
-  },
-  {
-    symbol: "BHARTIARTL",
-    exchange: "NSE",
-    name: "Bharti Airtel Ltd"
-  },
-  {
-    symbol: "ITC",
-    exchange: "NSE",
-    name: "ITC Ltd"
-  },
-  {
-    symbol: "LT",
-    exchange: "NSE",
-    name: "Larsen & Toubro Ltd"
-  },
-  {
-    symbol: "HINDUNILVR",
-    exchange: "NSE",
-    name: "Hindustan Unilever Ltd"
-  },
-  {
-    symbol: "MARUTI",
-    exchange: "NSE",
-    name: "Maruti Suzuki India Ltd"
-  },
-  {
-    symbol: "SUNPHARMA",
-    exchange: "NSE",
-    name: "Sun Pharmaceutical Industries Ltd"
-  },
-  {
-    symbol: "TITAN",
-    exchange: "NSE",
-    name: "Titan Company Ltd"
-  },
-  {
-    symbol: "AXISBANK",
-    exchange: "NSE",
-    name: "Axis Bank Ltd"
-  },
-  {
-    symbol: "BAJFINANCE",
-    exchange: "NSE",
-    name: "Bajaj Finance Ltd"
-  },
-  {
-    symbol: "KOTAKBANK",
-    exchange: "NSE",
-    name: "Kotak Mahindra Bank Ltd"
-  },
-  {
-    symbol: "M&M",
-    exchange: "NSE",
-    name: "Mahindra & Mahindra Ltd"
-  },
-  {
-    symbol: "ADANIENT",
-    exchange: "NSE",
-    name: "Adani Enterprises Ltd"
-  },
-  {
-    symbol: "NTPC",
-    exchange: "NSE",
-    name: "NTPC Ltd"
-  },
-  {
-    symbol: "POWERGRID",
-    exchange: "NSE",
-    name: "Power Grid Corporation of India Ltd"
-  }
-];
 
 function send(res, status, body) {
   return res.status(status).json(body);
@@ -479,7 +378,12 @@ function calculateScore(stock) {
   const changePercent =
     Number(stock.changePercent);
 
-  if (!Number.isFinite(changePercent)) {
+  if (
+    stock.changePercent === null ||
+    stock.changePercent === undefined ||
+    stock.changePercent === "" ||
+    !Number.isFinite(changePercent)
+  ) {
     return null;
   }
 
@@ -590,7 +494,7 @@ export default async function handler(
 
   const verified =
     await runWithConcurrency(
-      CANDIDATES,
+      STOCK_UNIVERSE,
       2,
       async (candidate) => {
         const quote =
@@ -618,7 +522,7 @@ export default async function handler(
         (a, b) =>
           b.score - a.score
       )
-      .slice(0, 5);
+      ;
 
   if (!ranked.length) {
     return send(res, 503, {
@@ -632,10 +536,10 @@ export default async function handler(
       new Date().toISOString(),
 
     marketStatus:
-      "Ranked only from successfully verified provider quotes.",
+      "Popular Indian stocks with successfully verified provider quotes.",
 
     universeSize:
-      CANDIDATES.length,
+      STOCK_UNIVERSE.length,
 
     verifiedCount:
       verified.length,
