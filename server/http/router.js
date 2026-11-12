@@ -21,6 +21,7 @@ import indicators from "../../handlers/indicators.js";
 import instruments from "../../handlers/instruments.js";
 import jobs from "../../handlers/jobs.js";
 import jobDetail from "../../handlers/jobs/[jobId].js";
+import jobReplay from "../../handlers/jobs/replay.js";
 import market from "../../handlers/market.js";
 import marketOverview from "../../handlers/market-overview.js";
 import nav from "../../handlers/nav.js";
@@ -63,6 +64,7 @@ const ROUTE_DEFINITIONS = [
   ["top-stocks", topStocks],
   ["universe", universe],
   ["worker", worker],
+  ["jobs/:jobId/replay", jobReplay],
   ["jobs/:jobId", jobDetail]
 ];
 

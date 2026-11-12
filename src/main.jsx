@@ -10,6 +10,8 @@ import ResearchLab from "./views/ResearchLab.jsx";
 import Watchlists from "./views/Watchlists.jsx";
 import Portfolio from "./views/Portfolio.jsx";
 import Diagnostics from "./views/Diagnostics.jsx";
+import CoverageWorkspace from "./views/CoverageWorkspace.jsx";
+import AIUsage from "./views/AIUsage.jsx";
 import "./styles.css";
 
 const VALID_VIEWS = [
@@ -21,7 +23,9 @@ const VALID_VIEWS = [
   "research",
   "watchlists",
   "portfolio",
-  "diagnostics"
+  "diagnostics",
+  "coverage",
+  "ai-usage"
 ];
 
 function readView() {
@@ -69,6 +73,8 @@ function App() {
         {view === "watchlists" && <Watchlists onNavigate={navigate} />}
         {view === "portfolio" && <Portfolio onNavigate={navigate} />}
         {view === "diagnostics" && <Diagnostics />}
+        {view === "coverage" && <CoverageWorkspace />}
+        {view === "ai-usage" && <AIUsage />}
       </main>
     </div>
   );

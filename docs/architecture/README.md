@@ -22,6 +22,7 @@ here so implementation decisions stay traceable to a decision.
 | [`environment-audit.md`](./environment-audit.md) | Every environment variable, plus retirement proposals (nothing deleted) |
 | [`observability.md`](./observability.md) | What is logged today, what is missing, how to add it |
 | [`groq-credential-routing.md`](./groq-credential-routing.md) | Per-agent Groq credential resolution, telemetry and the AI vs market diagnostics split |
+| [`tradingagents-adaptation.md`](./tradingagents-adaptation.md) | TradingAgents-inspired orchestration, provider registry v2, India-first coverage, tool contract, scenarios and replay |
 
 ## Layered system
 
@@ -30,6 +31,7 @@ here so implementation decisions stay traceable to a decision.
 │ Frontend (React + Vite)   Overview · Chart Lab · Structure    │
 │                           Screener · News · Watchlists        │
 │                           Portfolio · Research · Diagnostics  │
+│                           Coverage · AI Usage                 │
 └───────────────────────────────┬──────────────────────────────┘
                                 │  same-origin /api/* (no secrets in browser)
 ┌───────────────────────────────▼──────────────────────────────┐
@@ -75,9 +77,9 @@ market-lens/
 ├── src/                      # React + Vite terminal
 │   ├── main.jsx              # shell + hash view routing
 │   ├── components/           # AppChrome, PriceChart, IndicatorPane, coverage
-│   ├── views/                # 9 workspaces: Overview, ChartLab, Structure,
+│   ├── views/                # 11 workspaces: Overview, ChartLab, Structure,
 │   │                          Screener, News, Watchlists, Portfolio, Research,
-│   │                          Diagnostics
+│   │                          Diagnostics, Coverage, AI Usage
 │   ├── lib/                  # api client, market client, legacy helpers
 │   └── styles.css            # design tokens + terminal styles
 ├── api/
@@ -87,7 +89,7 @@ market-lens/
 │   ├── history, indicators, analysis, coverage, nav, official-data
 │   ├── news, provider-status
 │   ├── report                       # single-shot AI commentary
-│   ├── research, jobs, jobs/[jobId] # durable research jobs
+│   ├── research, jobs, jobs/[jobId], jobs/[jobId]/replay # durable research + replay
 │   └── worker                       # queue delivery entry point
 ├── server/
 │   ├── market-data/          # gateway, normalize, candles, providers/*

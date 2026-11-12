@@ -134,6 +134,11 @@ const OUTPUTS = {
       ].map((key) => [key, { status: "available", body: `${key} body` }])
     ),
     disagreements: [],
+    scenarios: {
+      bullish: { thesis: "Upside continuation.", evidenceIds: [], conditions: ["Volume expands"], uncertainty: "medium", invalidation: "Support fails" },
+      bearish: { thesis: "Downside risk.", evidenceIds: [], conditions: ["Resistance holds"], uncertainty: "medium", invalidation: "Breakout" },
+      neutral: { thesis: "Range persists.", evidenceIds: [], conditions: ["No breakout"], uncertainty: "low", invalidation: "Trend emerges" }
+    },
     agentStatus: { chart: "COMPLETED", technical: "COMPLETED", risk: "COMPLETED" }
   }
 };

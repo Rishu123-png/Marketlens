@@ -316,14 +316,16 @@ export function createPgJobStore(client, { now = () => new Date().toISOString() 
 
       await client.query(
         `INSERT INTO research_job_results
-           (job_id, status, gate, versions, data_warnings, evidence, error, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           (job_id, status, gate, versions, data_warnings, evidence, run_config, data_snapshot, error, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
          ON CONFLICT (job_id) DO UPDATE SET
            status = EXCLUDED.status,
            gate = EXCLUDED.gate,
            versions = EXCLUDED.versions,
            data_warnings = EXCLUDED.data_warnings,
            evidence = EXCLUDED.evidence,
+           run_config = EXCLUDED.run_config,
+           data_snapshot = EXCLUDED.data_snapshot,
            error = EXCLUDED.error,
            updated_at = EXCLUDED.updated_at`,
         [
@@ -333,6 +335,8 @@ export function createPgJobStore(client, { now = () => new Date().toISOString() 
           result?.versions ? JSON.stringify(result.versions) : null,
           JSON.stringify(result?.dataWarnings ?? []),
           result?.evidence ? JSON.stringify(result.evidence) : null,
+          result?.runConfig ? JSON.stringify(result.runConfig) : null,
+          result?.dataSnapshot ? JSON.stringify(result.dataSnapshot) : null,
           result?.error ?? null,
           now()
         ]
@@ -368,7 +372,7 @@ export function createPgJobStore(client, { now = () => new Date().toISOString() 
     async getResult(jobId) {
       const report = await getReportForJob(client, jobId);
       const { rows } = await client.query(
-        `SELECT status, gate, versions, data_warnings, evidence, error, updated_at
+        `SELECT status, gate, versions, data_warnings, evidence, run_config, data_snapshot, error, updated_at
            FROM research_job_results WHERE job_id = $1`,
         [jobId]
       );
@@ -381,6 +385,8 @@ export function createPgJobStore(client, { now = () => new Date().toISOString() 
         versions: row?.versions ?? null,
         dataWarnings: row?.data_warnings ?? [],
         evidence: row?.evidence ?? null,
+        runConfig: row?.run_config ?? null,
+        dataSnapshot: row?.data_snapshot ?? null,
         error: row?.error ?? null,
         updatedAt:
           row?.updated_at instanceof Date ? row.updated_at.toISOString() : row?.updated_at ?? null

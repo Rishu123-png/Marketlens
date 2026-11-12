@@ -147,6 +147,8 @@ stored evidence keeps the excerpt and retrieval time observed when the analysis 
 
 ## Documentation
 
+- [`docs/architecture/tradingagents-adaptation.md`](docs/architecture/tradingagents-adaptation.md) — TradingAgents-inspired orchestration, provider registry v2, exchange-aware instruments, ₹0 data strategy, tool contract, reproducibility and replay
+- [`docs/verification/2026-11-12-tradingagents-adaptation.md`](docs/verification/2026-11-12-tradingagents-adaptation.md) — test results, source verification and mocked-vs-live limits for this adaptation
 - [`docs/architecture/production-audit-2026-11.md`](docs/architecture/production-audit-2026-11.md) — production audit: TCS wrong-listing bug, 40-instrument ceiling, low quote coverage and feed-status honesty
 - [`docs/architecture/README.md`](docs/architecture/README.md) — system overview and layout
 - [`docs/architecture/api.md`](docs/architecture/api.md) — endpoints and error shapes

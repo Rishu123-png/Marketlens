@@ -118,6 +118,14 @@ export const riskOutputSchema = agentFindingsSchema.extend({
     note: nullableText
   }),
   conflicts: z.array(z.string().min(1).max(600)).max(20),
+  review: z
+    .object({
+      completeness: z.enum(["adequate", "partial", "insufficient"]),
+      freshness: z.enum(["current", "delayed", "stale", "unknown"]),
+      reliability: z.enum(["good", "mixed", "poor", "unknown"]),
+      unsupportedClaims: z.array(z.string().min(1).max(600)).max(20)
+    })
+    .optional(),
   uncertainty: z.enum(CONFIDENCE_LEVELS),
   publicationGate: z.enum(["pass", "warn", "block"]),
   gateReasons: z.array(z.string().min(1).max(600)).max(20)
@@ -141,6 +149,14 @@ export const COORDINATOR_SECTIONS = [
   "sourcesAndMethodology"
 ];
 
+const scenarioSchema = z.object({
+  thesis: z.string().min(1).max(1600),
+  evidenceIds: z.array(z.string().min(1).max(64)).max(20),
+  conditions: z.array(z.string().min(1).max(400)).max(8),
+  uncertainty: z.enum(CONFIDENCE_LEVELS),
+  invalidation: z.string().min(1).max(600).nullable()
+});
+
 export const coordinatorOutputSchema = agentFindingsSchema.extend({
   sections: z
     .object({
@@ -157,6 +173,15 @@ export const coordinatorOutputSchema = agentFindingsSchema.extend({
     })
     .strict(),
   disagreements: z.array(z.string().min(1).max(600)).max(12),
+  // Bull/bear/neutral scenario debate. These are conditional readings of the
+  // same supplied evidence, not probabilities or recommendations.
+  scenarios: z
+    .object({
+      bullish: scenarioSchema,
+      bearish: scenarioSchema,
+      neutral: scenarioSchema
+    })
+    .strict(),
   agentStatus: z.partialRecord(z.enum(AGENT_IDS), z.enum(["COMPLETED", "FAILED", "SKIPPED", "BLOCKED"]))
 });
 

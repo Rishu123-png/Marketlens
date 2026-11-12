@@ -5,12 +5,13 @@
  * No provider URL, query string, API key or key prefix appears in this payload.
  */
 
-import { getInstrument, resolveProviderSymbol } from "../../shared/instruments/catalog.js";
-import { buildInstrumentMatrix, instrumentAvailability } from "../instruments/service.js";
+import { INSTRUMENTS, getInstrument, resolveProviderSymbol } from "../../shared/instruments/catalog.js";
+import { buildInstrumentMatrix, instrumentAvailability, listCatalog } from "../instruments/service.js";
 import { buildCoverage } from "../evidence/coverage.js";
 import { observationSnapshot, marketRequestSnapshot } from "./observations.js";
 import { PROVIDER_CAPABILITIES, PROVIDER_IDS, getProviderOrder, getProviders } from "./providers/index.js";
 import { providerPolicySnapshot } from "./providerPolicy.js";
+import { PROVIDER_REGISTRY, buildProviderRegistry, providerSelectionPlan } from "./registry.js";
 
 const PROVIDER_KEYS = {
   fmp: "FMP_API_KEY",
@@ -19,6 +20,16 @@ const PROVIDER_KEYS = {
 };
 
 const CHECKED_INSTRUMENTS = ["TCS", "HINDUNILVR"];
+const SELECTION_CHECKS = [
+  "IN-EQ-TCS",
+  "IN-EQ-TCS-BSE",
+  "IN-EQ-HINDUNILVR",
+  "IN-IDX-NIFTY50",
+  "IN-IDX-NIFTYBANK",
+  "IN-FUT-NIFTY50-FRONT",
+  "IN-OPT-NIFTY50-ATM-FRONT"
+];
+const COVERAGE_INTERVALS = ["quote", "1min", "5min", "15min", "30min", "1h", "4h", "1day", "1week", "1month"];
 
 function providerStatuses(env = process.env) {
   return Object.fromEntries(
@@ -69,8 +80,50 @@ function instrumentMappings() {
   );
 }
 
+function intervalSupport(descriptor, interval) {
+  if (interval === "quote") return descriptor.quote?.supported === true;
+  if (interval === "1day") return descriptor.candles?.daily === true;
+  if (interval === "1week") return descriptor.candles?.weekly === true;
+  if (interval === "1month") return descriptor.candles?.monthly === true;
+  return descriptor.candles?.intraday?.includes(interval) === true;
+}
+
+function intervalCoverage({ env = process.env } = {}) {
+  return Object.fromEntries(
+    ["NSE", "BSE", "NASDAQ", "NYSE"].map((exchange) => {
+      const instruments = INSTRUMENTS.filter((instrument) => instrument.exchange === exchange && instrument.assetType !== "future" && instrument.assetType !== "option");
+      return [
+        exchange,
+        Object.fromEntries(
+          COVERAGE_INTERVALS.map((interval) => {
+            const declared = PROVIDER_IDS.filter((id) => {
+              const descriptor = PROVIDER_REGISTRY[id];
+              return descriptor.exchanges.includes(exchange) && intervalSupport(descriptor, interval);
+            });
+            const configured = declared.filter((id) => Boolean(env[PROVIDER_REGISTRY[id].envName]));
+            return [
+              interval,
+              {
+                catalogued: instruments.length,
+                declaredProviders: declared,
+                configuredProviders: configured,
+                // Declared support is not a validated response and is never
+                // counted as coverage.
+                verifiedInstruments: 0,
+                status: configured.length ? "configured-unverified" : declared.length ? "declared-not-configured" : "unavailable"
+              }
+            ];
+          })
+        )
+      ];
+    })
+  );
+}
+
 export function buildMarketDiagnostics({ env = process.env, now = () => new Date() } = {}) {
   const matrix = buildInstrumentMatrix({ now });
+  const policy = providerPolicySnapshot({ now: now().getTime() });
+  const registry = buildProviderRegistry({ env, policy });
   const coverage = buildCoverage({ env, now });
   const observed = observationSnapshot({ now: now().getTime() });
   const requests = marketRequestSnapshot({ limit: 120 });
@@ -98,8 +151,31 @@ export function buildMarketDiagnostics({ env = process.env, now = () => new Date
       "Market-data connectivity is independent of Groq connectivity. Quotes and candles never use Groq, and AI readiness never implies price coverage.",
     providers: providerStatuses(env),
     providerOrder: getProviderOrder(),
-    providerPolicy: providerPolicySnapshot(),
+    providerPolicy: policy,
+    registry,
+    intervalCoverage: intervalCoverage({ env }),
+    providerSelection: Object.fromEntries(
+      SELECTION_CHECKS.map((id) => {
+        const instrument = getInstrument(id);
+        return [
+          id,
+          instrument
+            ? {
+                instrument: {
+                  symbol: instrument.symbol,
+                  name: instrument.name,
+                  exchange: instrument.exchange,
+                  assetType: instrument.assetType
+                },
+                quote: providerSelectionPlan({ instrument, capability: "quote", env }),
+                dailyCandles: providerSelectionPlan({ instrument, capability: "candles", interval: "1day", env })
+              }
+            : { error: "not catalogued" }
+        ];
+      })
+    ),
     instrumentCoverage: matrix.coverage,
+    instrumentMatrix: listCatalog(),
     freshness: matrix.freshness,
     byExchange: matrix.byExchange,
     directory: matrix.directory,
@@ -126,7 +202,9 @@ export function buildMarketDiagnostics({ env = process.env, now = () => new Date
       "Configured means an environment variable exists; it does not prove entitlement, quota or symbol coverage.",
       "Request diagnostics are per serverless instance and reset on cold start.",
       "Quote and candle observations record only attempts made by this instance; cached responses are marked as cache hits.",
-      "No request URL or credential value is recorded."
+      "No request URL or credential value is recorded.",
+      "Registry exchanges/intervals are declarations. Only identity-checked observations count as verified coverage.",
+      "Yahoo/yfinance is listed as evaluated-but-rejected, not as a configured provider."
     ]
   };
 }

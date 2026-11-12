@@ -25,11 +25,12 @@ or calculated server-side. There is deliberately no `/v1` prefix (decision O4).
 | `/api/nav` | GET | Official AMFI end-of-day NAV | `isin` or `schemeCode`; `delayed: true` |
 | `/api/official-data` | GET | data.gov.in OGD records | `resource`, `limit`, `offset`, `filters`; 503 without `DATA_GOV_IN_API_KEY` |
 | `/api/provider-status` | GET | Capability, configuration and verification levels | Includes storage + queue status, per-agent Groq credential names/modes; never values |
-| `/api/diagnostics` | GET | Internal Data & AI diagnostics | Separate AI and market panels; no secrets, Authorization headers or provider URLs |
+| `/api/diagnostics` | GET | Internal Data & AI diagnostics | Separate AI and market panels, provider registry v2, interval coverage, per-instrument selection plans; no secrets, Authorization headers or provider URLs |
 | `/api/report` | POST | Single-shot AI commentary on a verified quote | Legacy quick path; one model call |
 | `/api/research` | POST | Create a durable research job | 202 with `jobId`; never runs agents in-request |
 | `/api/jobs` | GET | List jobs owned by `x-owner-id` (legacy unowned only when absent) | `limit`, `status` |
-| `/api/jobs/[jobId]` | GET | Job status, agent runs, report, evidence | Poll until terminal; 404 for a different owner |
+| `/api/jobs/[jobId]` | GET | Job status, agent runs, report, evidence, run configuration and data snapshot | Poll until terminal; 404 for a different owner |
+| `/api/jobs/[jobId]/replay` | GET | Stored-report replay | Owner-scoped; 409 if no report; makes no provider/model call |
 | `/api/jobs/[jobId]` | DELETE | Cancel a job | Legal transitions only |
 | `/api/jobs/[jobId]` | POST | Explicitly retry a `FAILED` or `BLOCKED` job | Owner-scoped; 202 with a fresh queue delivery; 409 otherwise |
 | `/api/worker` | POST | Queue delivery entry point | QStash signature (when signing keys set) or `WORKER_SECRET` |

@@ -68,6 +68,7 @@ export const REPORT_SECTIONS = [
   "news",
   "sentiment",
   "risk",
+  "scenarios",
   "conflicts",
   "observations",
   "limitations",

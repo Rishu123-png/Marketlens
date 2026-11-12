@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { instrumentSchema } from "../../shared/schemas/instrument.js";
 import {
   INSTRUMENTS,
   POPULAR_INDIAN_EQUITY_IDS,
@@ -16,7 +17,7 @@ test("every instrument has a unique stable id", () => {
   const ids = INSTRUMENTS.map((instrument) => instrument.id);
   assert.equal(new Set(ids).size, ids.length);
   for (const instrument of INSTRUMENTS) {
-    assert.match(instrument.id, /^(IN|US)-(EQ|IDX|ETF)-[A-Z0-9]+(-BSE)?$/);
+    assert.match(instrument.id, /^(IN|US)-(EQ|IDX|ETF|FUT|OPT)-[A-Z0-9]+(-BSE|-FRONT|-ATM-FRONT)?$/);
   }
 });
 
@@ -31,9 +32,9 @@ test("the legacy popular list is still the curated 20 NSE equities", () => {
   }
 });
 
-test("catalog covers equities, indices and ETFs across two markets", () => {
+test("catalog covers equities, indices, ETFs and derivative identity templates across two markets", () => {
   const types = new Set(INSTRUMENTS.map((instrument) => instrument.assetType));
-  assert.deepEqual([...types].sort(), ["equity", "etf", "index"]);
+  assert.deepEqual([...types].sort(), ["equity", "etf", "future", "index", "option"]);
   assert.ok(INSTRUMENTS.length >= 100, "the bundled master is no longer a 40-instrument list");
 
   const countries = new Set(INSTRUMENTS.map((instrument) => instrument.country));
@@ -124,4 +125,38 @@ test("filters narrow the catalog by country, asset type and exchange", () => {
 test("search respects filters", () => {
   const results = searchInstruments("s", { country: "IN", assetType: "index" });
   assert.ok(results.every((instrument) => instrument.country === "IN"));
+});
+
+
+test("derivative templates keep exchange identity and never guess a provider ticker", () => {
+  const niftyFuture = getInstrument("IN-FUT-NIFTY50-FRONT");
+  assert.equal(niftyFuture.exchange, "NSE");
+  assert.equal(niftyFuture.assetType, "future");
+  assert.equal(niftyFuture.underlyingId, "IN-IDX-NIFTY50");
+  assert.equal(niftyFuture.contractTemplate, true);
+  assert.equal(niftyFuture.lotSizeStatus, "verified");
+  assert.equal(niftyFuture.lotSize, 65);
+  assert.equal(niftyFuture.lotSizeEffectiveFrom, "2025-12-30");
+  assert.equal(resolveProviderSymbol(niftyFuture, "fmp"), null);
+  assert.equal(resolveProviderSymbol(niftyFuture, "twelve"), null);
+  assert.equal(supportsProvider(niftyFuture, "fmp"), false);
+
+  const niftyOption = getInstrument("IN-OPT-NIFTY50-ATM-FRONT");
+  assert.equal(niftyOption.assetType, "option");
+  assert.equal(niftyOption.optionType, null);
+  assert.equal(resolveProviderSymbol(niftyOption, "alpha"), null);
+
+  const tcsNse = getInstrument("IN-EQ-TCS");
+  const tcsBse = getInstrument("IN-EQ-TCS-BSE");
+  assert.notEqual(tcsNse.id, tcsBse.id);
+  assert.equal(resolveProviderSymbol(tcsNse, "fmp"), "TCS.NS");
+  assert.equal(resolveProviderSymbol(tcsBse, "fmp"), "TCS.BO");
+  assert.equal(findInstrumentBySymbol("TCS", "BSE")?.id, "IN-EQ-TCS-BSE");
+  assert.equal(findInstrumentBySymbol("TCS", "NSE")?.id, "IN-EQ-TCS");
+});
+
+
+test("every catalog instrument satisfies the persisted identity schema", () => {
+  const invalid = INSTRUMENTS.filter((instrument) => !instrumentSchema.safeParse(instrument).success);
+  assert.deepEqual(invalid.map((instrument) => instrument.id), []);
 });

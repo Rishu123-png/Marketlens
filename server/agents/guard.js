@@ -44,10 +44,26 @@ export function findProhibitedLanguage(output) {
  * Cross-check cited evidence ids against the envelope. Unknown ids are a
  * fabrication signal: the agent cited something it was never given.
  */
+function collectCitedEvidenceIds(value, out = [], depth = 0) {
+  if (depth > 8 || value === null || value === undefined) return out;
+  if (Array.isArray(value)) {
+    for (const entry of value) collectCitedEvidenceIds(entry, out, depth + 1);
+    return out;
+  }
+  if (typeof value !== "object") return out;
+  for (const [key, entry] of Object.entries(value)) {
+    if (key === "evidenceIds" && Array.isArray(entry)) {
+      for (const id of entry) if (typeof id === "string") out.push(id);
+    } else {
+      collectCitedEvidenceIds(entry, out, depth + 1);
+    }
+  }
+  return out;
+}
+
 export function findUnknownEvidenceIds(output, allowedIds) {
   const allowed = new Set(allowedIds || []);
-  const cited = Array.isArray(output?.evidenceIds) ? output.evidenceIds : [];
-  return cited.filter((id) => !allowed.has(id));
+  return [...new Set(collectCitedEvidenceIds(output))].filter((id) => !allowed.has(id));
 }
 
 export function validateAgentOutput(output, { allowedEvidenceIds = [] } = {}) {

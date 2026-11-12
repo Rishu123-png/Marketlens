@@ -33,7 +33,19 @@ const envelope = {
 const context = createToolContext(envelope);
 
 test("tool definitions expose only deterministic read tools", () => {
-  assert.deepEqual([...TOOL_NAMES].sort(), ["read_candles", "read_evidence", "read_indicator", "search_evidence"]);
+  assert.deepEqual([...TOOL_NAMES].sort(), [
+    "get_company_news",
+    "get_historical_candles",
+    "get_instrument_info",
+    "get_market_events",
+    "get_market_overview",
+    "get_quote",
+    "get_technical_indicators",
+    "read_candles",
+    "read_evidence",
+    "read_indicator",
+    "search_evidence"
+  ]);
   for (const definition of toolDefinitionsFor()) {
     assert.equal(definition.type, "function");
     assert.equal(definition.function.parameters.type, "object");
@@ -250,10 +262,47 @@ test("tool policy is per-agent and can be switched off", () => {
   assert.deepEqual(toolAgentIds({ AI_TOOL_AGENTS: "news, risk,bogus" }), ["news", "risk"]);
 
   const chart = toolsForAgent("chart", envelope, {});
-  assert.deepEqual(chart.tools.map((tool) => tool.function.name).sort(), ["read_candles", "read_indicator"]);
+  assert.deepEqual(chart.tools.map((tool) => tool.function.name).sort(), [
+    "get_historical_candles",
+    "get_instrument_info",
+    "get_quote"
+  ]);
   assert.equal(chart.context.candles.length, 2);
 
   assert.deepEqual(toolsForAgent("technical", envelope, {}), { tools: null, context: null });
   assert.deepEqual(toolsForAgent("coordinator", envelope, {}), { tools: null, context: null });
   assert.deepEqual(toolsForAgent("chart", envelope, { AI_TOOL_CALLING: "off" }), { tools: null, context: null });
+});
+
+
+test("the controlled get_* tools read only the supplied envelope", () => {
+  const quote = executeToolCall({ name: "get_quote", arguments: "{}" }, context);
+  assert.equal(quote.ok, true);
+  assert.equal(JSON.parse(quote.content).quote, null, "the fixture intentionally has no quote");
+
+  const info = executeToolCall({ name: "get_instrument_info", arguments: "{}" }, context);
+  assert.equal(info.ok, true);
+
+  const indicators = executeToolCall(
+    { name: "get_technical_indicators", arguments: '{"names":["rsi","magic"]}' },
+    context
+  );
+  const indicatorPayload = JSON.parse(indicators.content);
+  assert.deepEqual(indicatorPayload.indicators.rsi, { value: 58.2 });
+  assert.deepEqual(indicatorPayload.missing, ["magic"]);
+
+  const news = executeToolCall({ name: "get_company_news", arguments: '{"terms":"policy"}' }, context);
+  assert.equal(JSON.parse(news.content).matches.length, 1);
+
+  const events = executeToolCall({ name: "get_market_events", arguments: "{}" }, context);
+  assert.equal(JSON.parse(events.content).matches.length, 1);
+  assert.equal(JSON.parse(events.content).matches[0].publisher, "SEBI");
+
+  const overview = executeToolCall({ name: "get_market_overview", arguments: "{}" }, context);
+  const overviewPayload = JSON.parse(overview.content);
+  assert.equal(overviewPayload.candles.count, 2);
+  assert.match(overviewPayload.note, /not a forecast/i);
+
+  const candles = executeToolCall({ name: "get_historical_candles", arguments: '{"limit":1}' }, context);
+  assert.equal(JSON.parse(candles.content).candles.length, 1);
 });

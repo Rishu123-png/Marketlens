@@ -33,6 +33,11 @@ import { getAgentConfig } from "../ai/config.js";
 import { safeEvaluatePublicationGate } from "../reports/gate.js";
 import { GATE_RULES_VERSION } from "../../shared/schemas/gate.js";
 import { REPORT_BUILDER_VERSION, buildResearchReport } from "../reports/report.js";
+import {
+  REPRODUCIBILITY_VERSION,
+  buildDataSnapshot,
+  buildRunConfig
+} from "./reproducibility.js";
 
 export const ORCHESTRATOR_VERSION = "1.0.0";
 
@@ -269,7 +274,11 @@ export async function runResearch(options = {}) {
     chart: market.chart,
     structure: market.structure,
     evidence,
-    quality: { dataWarnings: warnings, coverage: coverageSummary(buildCoverage({ now })) },
+    quality: {
+      dataWarnings: warnings,
+      coverage: coverageSummary(buildCoverage({ now })),
+      quoteFreshness: market.quote?.freshness ?? null
+    },
     generatedAt: now().toISOString()
   });
 
@@ -372,6 +381,36 @@ export async function runResearch(options = {}) {
     createdAt
   });
 
+  const versions = {
+    orchestrator: ORCHESTRATOR_VERSION,
+    envelope: ENVELOPE_VERSION,
+    promptEnvelope: PROMPT_ENVELOPE_VERSION,
+    indicators: INDICATOR_ENGINE_VERSION,
+    patterns: PATTERN_ENGINE_VERSION,
+    structure: STRUCTURE_ENGINE_VERSION,
+    gateRules: GATE_RULES_VERSION,
+    reportBuilder: REPORT_BUILDER_VERSION,
+    reproducibility: REPRODUCIBILITY_VERSION
+  };
+
+  const runId = jobId ?? report.jobId;
+  const runConfig = buildRunConfig({
+    runId,
+    jobId,
+    instrument,
+    depth,
+    requestedModules,
+    market,
+    envelope,
+    gate,
+    agentRuns,
+    report,
+    versions,
+    options,
+    analysisTimestamp: createdAt
+  });
+  const dataSnapshot = buildDataSnapshot({ market, envelope });
+
   const allCompleted = Object.values(agentRuns).every((run) => run.status === "COMPLETED");
   const anyCompleted = Object.values(agentRuns).some((run) => run.status === "COMPLETED");
 
@@ -406,16 +445,17 @@ export async function runResearch(options = {}) {
     gate,
     report,
     dataWarnings: warnings,
-    versions: {
-      orchestrator: ORCHESTRATOR_VERSION,
-      envelope: ENVELOPE_VERSION,
-      promptEnvelope: PROMPT_ENVELOPE_VERSION,
-      indicators: INDICATOR_ENGINE_VERSION,
-      patterns: PATTERN_ENGINE_VERSION,
-      structure: STRUCTURE_ENGINE_VERSION,
-      gateRules: GATE_RULES_VERSION,
-      reportBuilder: REPORT_BUILDER_VERSION
+    runId,
+    runConfig,
+    dataSnapshot,
+    reproducibility: {
+      version: REPRODUCIBILITY_VERSION,
+      runId,
+      reportId: report.reportId,
+      replayable: true,
+      note: "Replay reads the stored report, evidence and data snapshot. It does not fetch a new price series."
     },
+    versions,
     generatedAt: createdAt
   };
 }

@@ -2,9 +2,9 @@
  * Which specialist agents may call deterministic tools, and which tools.
  *
  * Tool calling is a licence to *read the run's evidence again*, not to widen it.
- * Analytical agents that most often need a second look at a specific candle,
- * indicator or article get tools; the technical and risk agents work from the
- * pre-computed snapshot alone so their inputs stay small and reproducible.
+ * The `get_*` tools are the controlled interface: quote, historical candles,
+ * instrument identity, deterministic indicators, company news, market events
+ * and a data-quality overview. No tool can fetch, browse or write.
  *
  * `AI_TOOL_CALLING=off` disables tool use everywhere without a code change.
  */
@@ -14,11 +14,11 @@ import { createToolContext, toolDefinitionsFor } from "../agents/tools.js";
 export const DEFAULT_TOOL_AGENTS = Object.freeze(["chart", "news", "sentiment"]);
 
 const TOOLS_BY_AGENT = Object.freeze({
-  chart: ["read_candles", "read_indicator"],
-  news: ["search_evidence", "read_evidence"],
-  sentiment: ["search_evidence", "read_evidence"],
-  technical: ["read_indicator"],
-  risk: ["read_candles", "search_evidence"],
+  chart: ["get_quote", "get_historical_candles", "get_instrument_info"],
+  news: ["get_company_news", "get_market_events"],
+  sentiment: ["get_company_news", "get_market_events"],
+  technical: ["get_technical_indicators", "get_historical_candles"],
+  risk: ["get_quote", "get_historical_candles", "get_market_overview"],
   coordinator: []
 });
 

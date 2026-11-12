@@ -10,14 +10,17 @@
 import { z } from "zod";
 
 export const SYMBOL_PATTERN = /^\^?[A-Z0-9._:&-]{1,40}$/;
-export const INSTRUMENT_ID_PATTERN = /^[A-Z]{2}-[A-Z]{2,6}-[A-Z0-9]+$/;
+export const INSTRUMENT_ID_PATTERN = /^[A-Z]{2}-[A-Z]{2,6}-[A-Z0-9]+(?:-[A-Z0-9]+)*$/;
 
 /**
- * Asset classes the model can represent. Only `ACTIVE_ASSET_TYPES` may be
- * exposed by the API: a class becomes available when an authorised data source
- * and validation exist, not because the schema accepts it.
+ * Asset classes the model can represent. `ACTIVE_ASSET_TYPES` is the narrower
+ * set with data-coverage ambitions; `future` and `option` can carry identity
+ * templates without implying that any provider prices them.
  */
-export const ASSET_TYPES = ["equity", "index", "etf", "bond", "commodity", "fx", "crypto"];
+export const ASSET_TYPES = ["equity", "index", "etf", "bond", "commodity", "fx", "crypto", "future", "option"];
+// Active price-coverage classes. Derivatives have identity templates but no
+// configured provider supplies Indian derivative quotes/candles, so they are
+// intentionally outside the active data-coverage set.
 export const ACTIVE_ASSET_TYPES = ["equity", "index", "etf"];
 
 export const symbolSchema = z

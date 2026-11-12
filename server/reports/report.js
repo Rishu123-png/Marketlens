@@ -14,6 +14,7 @@ import { researchReportSchema } from "../../shared/schemas/research.js";
 import { ENVELOPE_VERSION } from "../agents/envelope.js";
 import { PATTERN_ENGINE_VERSION } from "../patterns/index.js";
 import { INDICATOR_ENGINE_VERSION } from "../indicators/index.js";
+import { MARKET_DATA_REGISTRY_VERSION } from "../market-data/registry.js";
 
 export const REPORT_BUILDER_VERSION = "1.0.0";
 
@@ -57,6 +58,30 @@ function instrumentSection(instrument, envelope) {
   ].join("\n");
 }
 
+function scenarioLine(label, scenario) {
+  const evidence = scenario.evidenceIds?.length ? scenario.evidenceIds.join(", ") : "no direct evidence id";
+  return [
+    `${label}: ${scenario.thesis}`,
+    `Evidence: ${evidence}. Uncertainty: ${scenario.uncertainty}.`,
+    scenario.conditions?.length ? `Conditions: ${scenario.conditions.join("; ")}.` : null,
+    scenario.invalidation ? `Invalidation: ${scenario.invalidation}.` : null
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function scenarioSection(coordinator) {
+  if (!coordinator?.scenarios) {
+    return "Scenarios unavailable: the coordinator did not return bullish, bearish and neutral readings. This is not evidence that any scenario is more likely.";
+  }
+  return [
+    scenarioLine("Bullish scenario", coordinator.scenarios.bullish),
+    scenarioLine("Bearish scenario", coordinator.scenarios.bearish),
+    scenarioLine("Neutral scenario", coordinator.scenarios.neutral),
+    "These are conditional interpretations of the same supplied evidence, not forecasts, probabilities or recommendations."
+  ].join("\n\n");
+}
+
 function sourceLines(envelope) {
   const items = envelope?.evidence?.items || [];
   if (!items.length) return ["No external sources were used in this report."];
@@ -74,6 +99,7 @@ function methodologySection({ depth, modules, envelope, quote, gate, agentRuns }
     `Market data: ${quote ? `${quote.provider} quote retrieved ${quote.retrievedAt}` : "no verified quote"}; ` +
       `candles ${envelope?.marketContext?.candles?.count ?? 0} (${envelope?.marketContext?.candles?.source ?? "no provider"}).`,
     `Calculations: indicator engine ${INDICATOR_ENGINE_VERSION}, pattern engine ${PATTERN_ENGINE_VERSION}.`,
+    `Market-data registry ${MARKET_DATA_REGISTRY_VERSION}; provider tier is delayed/EOD unless a validated entitlement says otherwise.`,
     `Agents: ${Object.entries(agentRuns).map(([agent, run]) => `${agent}=${run.status}`).join(", ")}.`,
     `Publication gate: ${gate.verdict} under rules ${gate.rulesVersion}.`,
     `Evidence envelope ${ENVELOPE_VERSION}, report builder ${REPORT_BUILDER_VERSION}.`,
@@ -155,6 +181,7 @@ export function buildResearchReport(input) {
     }
   }
 
+  sections.scenarios = scenarioSection(coordinator);
   sections.observations = coordinator ? [...coordinator.observations] : [];
   sections.limitations = [
     ...(coordinator?.limitations || []),

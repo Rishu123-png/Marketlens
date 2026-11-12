@@ -1,6 +1,7 @@
 import { alphaProvider } from "./alpha.js";
 import { fmpProvider } from "./fmp.js";
 import { twelveProvider } from "./twelve.js";
+import { getProviderDescriptor } from "../registry.js";
 
 /** Registered quote providers. Add an adapter here and nothing else changes. */
 export const PROVIDERS = Object.freeze({
@@ -12,32 +13,34 @@ export const PROVIDERS = Object.freeze({
 export const PROVIDER_IDS = Object.freeze(Object.keys(PROVIDERS));
 
 /** Declared capabilities. Declared, not live-verified. */
-export const PROVIDER_CAPABILITIES = Object.freeze({
-  fmp: {
-    quotes: true,
-    candles: true,
-    intraday: true,
-    indices: true,
-    historicalIntervals: ["1day"],
-    intradayIntervals: ["1min", "5min", "15min", "30min", "1h", "4h"]
-  },
-  twelve: {
-    quotes: true,
-    candles: true,
-    intraday: true,
-    indices: "mapped-only",
-    historicalIntervals: ["1day", "1week", "1month"],
-    intradayIntervals: ["1min", "5min", "15min", "30min", "1h", "4h"]
-  },
-  alpha: {
-    quotes: true,
-    candles: true,
-    intraday: false,
-    indices: "mapped-only",
-    historicalIntervals: ["1day", "1week"],
-    intradayIntervals: []
-  }
-});
+function capabilitiesFor(id) {
+  const descriptor = getProviderDescriptor(id);
+  return {
+    // Legacy flat flags stay for existing consumers.
+    quotes: descriptor.quote.supported,
+    candles: descriptor.candles.daily,
+    intraday: descriptor.candles.intraday.length > 0,
+    indices: id === "fmp" ? true : "mapped-only",
+    historicalIntervals: ["1day", "1week", "1month"].filter((interval) =>
+      interval === "1day" ? descriptor.candles.daily : descriptor.candles[interval === "1week" ? "weekly" : "monthly"]
+    ),
+    intradayIntervals: [...descriptor.candles.intraday],
+    // Registry v2 vocabulary: exchanges, instrument types, freshness and
+    // licensing are declarations, never live-coverage claims.
+    exchanges: [...descriptor.exchanges],
+    instrumentTypes: [...descriptor.instrumentTypes],
+    quoteFreshness: descriptor.quote.freshness,
+    realtime: descriptor.quote.realtime,
+    entitlement: descriptor.entitlement,
+    licensing: descriptor.licensing,
+    rateLimits: descriptor.rateLimits,
+    verification: descriptor.verification
+  };
+}
+
+export const PROVIDER_CAPABILITIES = Object.freeze(
+  Object.fromEntries(PROVIDER_IDS.map((id) => [id, Object.freeze(capabilitiesFor(id))]))
+);
 
 /**
  * Provider attempt order. `PRIMARY_MARKET_PROVIDER` (fmp | twelve | alpha)

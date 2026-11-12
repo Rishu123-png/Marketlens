@@ -13,6 +13,8 @@ import { describeGroqCredentials } from "../server/ai/credentials.js";
 import { observationSnapshot } from "../server/market-data/observations.js";
 import { PROVIDER_CAPABILITIES } from "../server/market-data/providers/index.js";
 import { buildInstrumentMatrix } from "../server/instruments/service.js";
+import { buildProviderRegistry, providerSelectionPlan } from "../server/market-data/registry.js";
+import { getInstrument } from "../shared/instruments/catalog.js";
 
 const MARKET_KEYS = {
   fmp: "FMP_API_KEY",
@@ -46,6 +48,14 @@ export default function handler(_req, res) {
   const coverage = buildCoverage();
   const instruments = buildInstrumentMatrix();
   const observed = observationSnapshot();
+  const registry = buildProviderRegistry({ env: process.env });
+  const tcs = getInstrument("IN-EQ-TCS");
+  const selectionExamples = tcs
+    ? {
+        tcsNseQuote: providerSelectionPlan({ instrument: tcs, capability: "quote" }),
+        tcsNseDailyCandles: providerSelectionPlan({ instrument: tcs, capability: "candles", interval: "1day" })
+      }
+    : null;
 
   res.status(200).json({
     ok: true,
@@ -56,6 +66,8 @@ export default function handler(_req, res) {
       filings: filings.some((provider) => provider.configured)
     },
     market,
+    providerRegistry: registry,
+    providerSelection: selectionExamples,
     ai,
     news,
     filings,
