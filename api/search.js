@@ -1,3 +1,5 @@
+import { rateLimit } from "../lib/server/rateLimit.js";
+
 function send(res, status, body) {
   return res.status(status).json(body);
 }
@@ -214,6 +216,20 @@ export default async function handler(
   req,
   res
 ) {
+  const quota = await rateLimit(req, {
+    name: "search",
+    limit: 30,
+    windowMs: 60_000
+  });
+
+  if (!quota.allowed) {
+    res.setHeader?.("Retry-After", String(quota.retryAfterSeconds));
+    return send(res, 429, {
+      error: "Too many search requests. Please try again shortly.",
+      retryAfterSeconds: quota.retryAfterSeconds
+    });
+  }
+
   const query = String(
     req.query?.q || ""
   ).trim();
