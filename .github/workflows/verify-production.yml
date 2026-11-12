@@ -1,0 +1,36 @@
+name: Verify production AI and market data
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Deployed base URL
+        required: false
+        default: https://marketlens-pi.vercel.app
+      symbol:
+        description: Instrument symbol
+        required: false
+        default: TCS
+      depth:
+        description: Research depth (comprehensive runs all six agents)
+        required: false
+        default: comprehensive
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run production verification
+        env:
+          BASE_URL: ${{ inputs.base_url }}
+          SYMBOL: ${{ inputs.symbol }}
+          DEPTH: ${{ inputs.depth }}
+        run: node scripts/verify-production.mjs
