@@ -16,9 +16,20 @@ npm run dev
 Useful commands:
 
 ```bash
+npm run check  # parse-only syntax guard over api/, server/, lib/, scripts/, tests/
 npm test       # Node's built-in test runner
 npm run build  # production frontend build
 ```
+
+## Architecture
+
+Market Lens is being extended from a quote dashboard into a multi-agent research
+terminal. The engineering blueprint, decision log, data-flow and agent contracts
+live in [`docs/architecture/`](docs/architecture/README.md).
+
+Deterministic calculations live in `server/`, never in prompts. The indicator
+engine (`server/indicators/`) is the first delivered module; the Technical agent
+interprets its output but never computes it.
 
 ## Deploying to Vercel
 
