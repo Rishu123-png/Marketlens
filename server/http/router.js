@@ -11,7 +11,6 @@
  */
 
 import { randomUUID } from "node:crypto";
-import agentProbe from "../../handlers/agent-probe.js";
 import analysis from "../../handlers/analysis.js";
 import coverage from "../../handlers/coverage.js";
 import diagnostics from "../../handlers/diagnostics.js";
@@ -40,7 +39,6 @@ import worker from "../../handlers/worker.js";
 
 /** Ordered so static segments win over parameterised ones. */
 const ROUTE_DEFINITIONS = [
-  ["agent-probe", agentProbe],
   ["analysis", analysis],
   ["coverage", coverage],
   ["diagnostics", diagnostics],
