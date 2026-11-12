@@ -1,6 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { InMemoryJobStore, JobNotFoundError, resetJobStoreForTests } from "../../server/jobs/store.js";
+import {
+  InMemoryJobStore,
+  JobNotFoundError,
+  resetJobStoreForTests,
+  setJobStoreForTests
+} from "../../server/jobs/store.js";
+import jobDetailHandler from "../../api/jobs/[jobId].js";
+import { resetRateLimitsForTests } from "../../lib/server/rateLimit.js";
 import { JobRunner, drainQueue } from "../../server/jobs/worker.js";
 import {
   createMemoryQueue,
@@ -213,4 +220,75 @@ test("resetQueueForTests returns an empty shared queue", async () => {
 test("resetJobStoreForTests clears the shared store", () => {
   const store = resetJobStoreForTests();
   assert.equal(store.list().length, 0);
+});
+
+/** Wrap a store so every method returns a promise, like the PostgreSQL store. */
+function asAsyncStore(store) {
+  const methods = ["create", "get", "has", "list", "transition", "claimNext", "complete", "fail", "cancel", "saveAgentRuns", "getAgentRuns", "saveResult", "getResult"];
+  const wrapped = { kind: "async-facade" };
+  for (const method of methods) {
+    wrapped[method] = async (...args) => store[method](...args);
+  }
+  return wrapped;
+}
+
+test("worker and drainQueue await an asynchronous store", async () => {
+  const base = new InMemoryJobStore();
+  const store = asAsyncStore(base);
+  const job = await store.create({ instrumentId: "IN-EQ-INFY", depth: "quick" });
+  await store.transition(job.jobId, "VALIDATING", { reason: "validated" });
+  await store.transition(job.jobId, "QUEUED", { reason: "queued" });
+
+  const runner = new JobRunner({
+    store,
+    logger: null,
+    research: async ({ onAgentRun }) => {
+      onAgentRun?.("chart", { agent: "chart", status: "COMPLETED" });
+      return { status: "COMPLETED", gate: gate("PASS"), report: { reportId: "report_async123456789" }, agentRuns: {}, versions: {} };
+    }
+  });
+
+  const processed = await drainQueue({ store, runner, limit: 1 });
+  assert.equal(processed.length, 1);
+  assert.equal(processed[0].job.status, "COMPLETED");
+  assert.deepEqual(Object.keys(await store.getAgentRuns(job.jobId)), ["chart"]);
+  assert.equal((await store.getResult(job.jobId)).report.reportId, "report_async123456789");
+});
+
+test("job detail endpoint works against an asynchronous store", async () => {
+  resetRateLimitsForTests();
+  const base = new InMemoryJobStore();
+  const store = asAsyncStore(base);
+  setJobStoreForTests(store);
+
+  const job = await store.create({ instrumentId: "IN-EQ-INFY", depth: "quick" });
+  await store.transition(job.jobId, "VALIDATING", { reason: "validated" });
+  await store.transition(job.jobId, "QUEUED", { reason: "queued" });
+  await store.saveAgentRuns(job.jobId, { chart: { agent: "chart", status: "COMPLETED", error: null } });
+
+  const res = {
+    statusCode: 200,
+    body: undefined,
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    setHeader() {},
+    json(body) {
+      this.body = body;
+      return this;
+    }
+  };
+
+  await jobDetailHandler({ method: "GET", query: { jobId: job.jobId }, headers: {} }, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.job.status, "QUEUED");
+  assert.equal(res.body.agentRuns.chart.status, "COMPLETED");
+
+  const deleted = { ...res, statusCode: 200, body: undefined };
+  await jobDetailHandler({ method: "DELETE", query: { jobId: job.jobId }, headers: {} }, deleted);
+  assert.equal(deleted.body.status, "CANCELLED");
+  assert.equal(deleted.body.cancelled, true);
+
+  setJobStoreForTests(new InMemoryJobStore());
 });

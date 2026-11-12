@@ -1,0 +1,164 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { InMemoryJobStore } from "../../server/jobs/store.js";
+import { JobRunner } from "../../server/jobs/worker.js";
+import { runResearch } from "../../server/orchestrator/research.js";
+
+const NOW = new Date("2026-02-10T09:00:00.000Z");
+
+function candles(count = 45) {
+  const series = Array.from({ length: count }, (_, index) => {
+    const close = 2800 + Math.sin(index / 6) * 20 + index;
+    return {
+      time: new Date(Date.UTC(2026, 0, 1) + index * 86_400_000).toISOString().slice(0, 10),
+      open: close - 3,
+      high: close + 6,
+      low: close - 6,
+      close,
+      volume: 900_000 + index * 500,
+      source: "Twelve Data"
+    };
+  });
+
+  return {
+    interval: "1day",
+    candles: series,
+    source: "Twelve Data",
+    coverage: { count, complete: true, from: series[0].time, to: series.at(-1).time },
+    droppedRows: 0
+  };
+}
+
+const QUOTE = {
+  instrumentId: "IN-EQ-RELIANCE",
+  price: 2890.5,
+  change: 10,
+  changePercent: 0.35,
+  currency: "INR",
+  provider: "fmp",
+  quoteVerified: true,
+  timestamp: "2026-02-10T08:00:00.000Z",
+  providerTimestamp: "2026-02-10T08:00:00.000Z",
+  retrievedAt: "2026-02-10T08:59:30.000Z"
+};
+
+const OUTPUTS = {
+  "Chart Agent (price structure)": {
+    summary: "Range-bound with a mild upward bias.",
+    observations: [],
+    evidenceIds: [],
+    confidence: "medium",
+    limitations: [],
+    structure: "Consolidation",
+    trend: { label: "sideways", evidence: [] },
+    zones: [],
+    patterns: [],
+    volumeObservations: [],
+    timeframeFindings: []
+  },
+  "Technical Agent (indicator interpretation)": {
+    summary: "Momentum is neutral.",
+    observations: [],
+    evidenceIds: [],
+    confidence: "medium",
+    limitations: [],
+    indicators: { rsi14: { value: 51.2, interpretation: "mid-range" } },
+    agreement: "mixed",
+    conflicts: [],
+    timeframeNotes: []
+  },
+  "Risk Agent (data quality and uncertainty)": {
+    summary: "Adequate data with single-source price risk.",
+    observations: [],
+    evidenceIds: [],
+    confidence: "medium",
+    limitations: [],
+    dataQuality: { status: "degraded", warnings: ["Single price source"] },
+    volatility: { level: "normal", note: null },
+    conflicts: [],
+    uncertainty: "medium",
+    publicationGate: "warn",
+    gateReasons: []
+  },
+  "Coordinator Agent (synthesis)": {
+    summary: "Synthesised research.",
+    observations: ["Range-bound"],
+    evidenceIds: [],
+    confidence: "medium",
+    limitations: ["Research only"],
+    sections: Object.fromEntries(
+      [
+        "summary",
+        "marketContext",
+        "chart",
+        "technical",
+        "news",
+        "sentiment",
+        "risk",
+        "conflicts",
+        "whatToMonitor",
+        "sourcesAndMethodology"
+      ].map((key) => [key, { status: "available", body: `${key} body` }])
+    ),
+    disagreements: [],
+    agentStatus: { chart: "COMPLETED", technical: "COMPLETED", risk: "COMPLETED" }
+  }
+};
+
+function stubProvider() {
+  return {
+    id: "stub",
+    label: "stub",
+    isConfigured: () => true,
+    async completeJson({ messages }) {
+      const system = messages.find((message) => message.role === "system").content;
+      const role = system.match(/You are the ([^.]+) in Market Lens/)[1].trim();
+      return {
+        content: JSON.stringify(OUTPUTS[role]),
+        usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+        model: "stub-model",
+        provider: "stub"
+      };
+    }
+  };
+}
+
+test("worker + orchestrator produce a persisted, schema-valid report", async () => {
+  const store = new InMemoryJobStore();
+  const job = store.create({ instrumentId: "IN-EQ-RELIANCE", depth: "quick" });
+  store.transition(job.jobId, "VALIDATING", { reason: "validated" });
+  store.transition(job.jobId, "QUEUED", { reason: "queued" });
+
+  const runner = new JobRunner({
+    store,
+    logger: null,
+    now: () => NOW.toISOString(),
+    research: (options) =>
+      runResearch({
+        ...options,
+        quote: QUOTE,
+        candles: candles(),
+        evidence: null,
+        provider: stubProvider(),
+        now: () => NOW
+      })
+  });
+
+  const outcome = await runner.process(job.jobId);
+
+  assert.equal(outcome.job.status, "COMPLETED", "gate is not blocking for this fixture");
+  assert.equal(outcome.job.gate.verdict, "PASS_WITH_WARNINGS");
+  assert.equal(outcome.job.gate.blocking.length, 0);
+
+  const stored = store.getResult(job.jobId);
+  assert.ok(stored.report, "the report is persisted with the job");
+  assert.equal(stored.report.jobId, job.jobId);
+  assert.equal(stored.report.sections.executiveSummary, "summary body");
+  assert.equal(stored.report.sections.sentiment.includes("does not request"), true);
+  assert.ok(stored.report.methodology.includes("Publication gate"));
+  assert.equal(stored.report.gate.verdict, "PASS_WITH_WARNINGS");
+
+  const runs = store.getAgentRuns(job.jobId);
+  assert.deepEqual(Object.keys(runs).sort(), ["chart", "coordinator", "risk", "technical"]);
+  assert.ok(Object.values(runs).every((run) => run.status === "COMPLETED"));
+});

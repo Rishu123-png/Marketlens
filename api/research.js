@@ -60,7 +60,7 @@ export default async function handler(req, res) {
   }
 
   const store = await resolveJobStore();
-  let job = store.create({
+  let job = await store.create({
     instrumentId: instrument.id,
     depth,
     timeframe: body.timeframe || "1D",
@@ -68,8 +68,8 @@ export default async function handler(req, res) {
     newsLookbackDays: Number.isInteger(body.newsLookbackDays) ? body.newsLookbackDays : 30
   });
 
-  job = store.transition(job.jobId, "VALIDATING", { reason: "request validated" });
-  job = store.transition(job.jobId, "QUEUED", { reason: `queued for ${depth} research` });
+  job = await store.transition(job.jobId, "VALIDATING", { reason: "request validated" });
+  job = await store.transition(job.jobId, "QUEUED", { reason: `queued for ${depth} research` });
 
   try {
     const delivery = await getQueue().enqueue({ jobId: job.jobId });
@@ -89,7 +89,7 @@ export default async function handler(req, res) {
           : "The worker will pick this job up from QStash."
     });
   } catch (error) {
-    store.fail(job.jobId, error instanceof Error ? error.message : "Queue delivery failed");
+    await store.fail(job.jobId, error instanceof Error ? error.message : "Queue delivery failed");
     return res.status(503).json({
       error: "Research job could not be queued.",
       details: error instanceof Error ? error.message : "Unknown queue failure"

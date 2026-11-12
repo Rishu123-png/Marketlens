@@ -208,6 +208,42 @@ test("reports are insert-only and revisions are recorded separately", async () =
   assert.equal(await getReport(client, report.reportId), null);
 });
 
+test("saveResult persists evidence from the raw evidence list only", async () => {
+  const calls = [];
+  const client = {
+    async query(text, params) {
+      calls.push({ sql: String(text).replace(/\s+/g, " ").trim(), params });
+      return { rows: [], rowCount: 1 };
+    }
+  };
+
+  const store = createPgJobStore(client);
+  await store.saveResult("research_abcdefgh", {
+    evidence: { items: [{ evidenceId: "ev-compact" }] },
+    evidenceForStorage: {
+      items: [
+        {
+          id: "ev-1",
+          sourceType: "news",
+          publisher: "Wire",
+          url: "https://example.com/1",
+          publishedAt: "2026-02-09T10:00:00.000Z",
+          retrievedAt: "2026-02-10T08:50:00.000Z",
+          excerpt: "x",
+          verification: "reported",
+          dedupeFingerprint: "abc123abc123"
+        }
+      ]
+    }
+  });
+
+  const inserts = calls.filter((call) => call.sql.startsWith("INSERT INTO evidence_items"));
+  assert.equal(inserts.length, 1);
+  assert.equal(inserts[0].params[0], "ev-1");
+  assert.equal(inserts[0].params[9], "abc123abc123");
+  assert.ok(!calls.some((call) => call.params?.[0] === "ev-compact"));
+});
+
 test("filesystem object store round-trips artefacts and blocks traversal", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "marketlens-objects-"));
   try {

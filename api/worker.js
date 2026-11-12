@@ -8,6 +8,7 @@
 // until it is, WORKER_SECRET is mandatory and QStash delivery must be
 // configured to send it.
 import { getJobStore, resolveJobStore } from "../server/jobs/store.js";
+import { timingSafeEqual } from "node:crypto";
 import { JobRunner, drainQueue } from "../server/jobs/worker.js";
 
 export default async function handler(req, res) {
@@ -25,7 +26,13 @@ export default async function handler(req, res) {
   }
 
   const provided = req.headers?.["x-worker-secret"];
-  if (provided !== secret) {
+  const providedBuffer = Buffer.from(String(provided ?? ""));
+  const secretBuffer = Buffer.from(String(secret));
+
+  const matches =
+    providedBuffer.length === secretBuffer.length && timingSafeEqual(providedBuffer, secretBuffer);
+
+  if (!matches) {
     return res.status(401).json({ error: "Unauthorized worker delivery." });
   }
 
@@ -38,7 +45,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ processed: processed.length });
   }
 
-  if (!store.has(jobId)) return res.status(404).json({ error: "Research job not found.", jobId });
+  if (!(await store.has(jobId))) return res.status(404).json({ error: "Research job not found.", jobId });
 
   const runner = new JobRunner({ store });
   const outcome = await runner.process(jobId);

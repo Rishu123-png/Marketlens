@@ -184,7 +184,7 @@ export default function MarketOverview() {
   const quoteCount = Object.keys(quotes).length;
 
   return (
-    <div className="view" id="top">
+    <div className="view">
 
         <section className="page-heading">
           <div>

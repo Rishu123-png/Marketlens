@@ -83,7 +83,7 @@ export const alphaProvider = {
       "https://www.alphavantage.co/query" +
         `?function=${series}` +
         `&symbol=${encodeURIComponent(symbol)}` +
-        "&outputsize=compact" +
+        `&outputsize=${limit > 100 ? "full" : "compact"}` +
         `&apikey=${encodeURIComponent(apiKey)}`,
       { timeoutMs: 12_000 }
     );

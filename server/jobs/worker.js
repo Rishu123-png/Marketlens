@@ -23,26 +23,38 @@ export class JobRunner {
    * @param {string} jobId A job in QUEUED or RUNNING state.
    */
   async process(jobId) {
-    let job = this.store.get(jobId);
+    let job = await this.store.get(jobId);
 
     if (job.status !== "RUNNING") {
-      job = this.store.transition(jobId, "RUNNING", { reason: "worker started job" });
+      job = await this.store.transition(jobId, "RUNNING", { reason: "worker started job" });
     }
+
+    // Agent runs are collected here and persisted once, so an async store
+    // (PostgreSQL) cannot race the job transition. Incremental writes would also
+    // work, but a partial write is not needed to explain the outcome.
+    const collectedRuns = {};
 
     try {
       const result = await this.research({
         instrument: job.instrumentId,
         depth: job.depth,
         jobId: job.jobId,
-        onAgentRun: (agent, run) => this.store.saveAgentRuns(job.jobId, { [agent]: run })
+        onAgentRun: (agent, run) => {
+          collectedRuns[agent] = run;
+        }
       });
 
-      this.store.saveResult(job.jobId, {
+      if (Object.keys(collectedRuns).length) {
+        await this.store.saveAgentRuns(job.jobId, collectedRuns);
+      }
+
+      await this.store.saveResult(job.jobId, {
         report: result.report,
         gate: result.gate,
         agentRuns: result.agentRuns,
         dataWarnings: result.dataWarnings,
         evidence: result.evidence,
+        evidenceForStorage: result.evidenceForStorage ?? null,
         quote: result.quote,
         candles: result.candles,
         versions: result.versions,
@@ -50,7 +62,7 @@ export class JobRunner {
       });
 
       const partial = result.status !== "COMPLETED";
-      const updated = this.store.complete(job.jobId, result.gate, {
+      const updated = await this.store.complete(job.jobId, result.gate, {
         partial,
         reason: `orchestrator finished with ${result.status}`
       });
@@ -58,11 +70,19 @@ export class JobRunner {
       return { job: updated, result };
     } catch (error) {
       this.logger?.error?.(`research job ${job.jobId} failed: ${error instanceof Error ? error.message : error}`);
-      this.store.saveResult(job.jobId, {
+      if (Object.keys(collectedRuns).length) {
+        try {
+          await this.store.saveAgentRuns(job.jobId, collectedRuns);
+        } catch {
+          /* the job failure below is the primary outcome */
+        }
+      }
+
+      await this.store.saveResult(job.jobId, {
         error: error instanceof Error ? error.message : "Unknown failure",
         failedAt: this.now()
       });
-      const updated = this.store.fail(job.jobId, error instanceof Error ? error.message : "Unknown failure");
+      const updated = await this.store.fail(job.jobId, error instanceof Error ? error.message : "Unknown failure");
       return { job: updated, error };
     }
   }
@@ -73,7 +93,7 @@ export async function drainQueue({ store = getJobStore(), runner = new JobRunner
   const processed = [];
 
   for (let index = 0; index < limit; index += 1) {
-    const claimed = store.claimNext();
+    const claimed = await store.claimNext();
     if (!claimed) break;
     processed.push(await runner.process(claimed.jobId));
   }

@@ -101,7 +101,6 @@ market-lens/
 ├── tests/unit/               # unit suites
 ├── test/                     # endpoint suites
 └── docs/architecture/        # this directory
-data/
 ```
 
 Rule: `api/` files stay thin — parse/validate the request, delegate to

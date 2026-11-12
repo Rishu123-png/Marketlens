@@ -30,10 +30,10 @@ export default async function handler(req, res) {
   const store = await resolveJobStore();
 
   try {
-    const job = store.get(jobId);
+    const job = await store.get(jobId);
 
     if (req.method === "DELETE") {
-      const cancelled = store.cancel(jobId);
+      const cancelled = await store.cancel(jobId);
       return res.status(200).json({
         jobId,
         status: cancelled.status,
@@ -42,8 +42,8 @@ export default async function handler(req, res) {
       });
     }
 
-    const result = store.getResult(jobId);
-    const runs = store.getAgentRuns(jobId);
+    const result = await store.getResult(jobId);
+    const runs = (await store.getAgentRuns(jobId)) || {};
 
     return res.status(200).json({
       job,

@@ -145,7 +145,13 @@ export async function resolveJobStore() {
   if (!resolvedStore) {
     resolvedStore = import("../storage/index.js")
       .then((module) => module.getStorage())
-      .then((storage) => storage.jobStore);
+      .then((storage) => storage.jobStore)
+      .catch((error) => {
+        // Do not cache a failed connection: the next request may succeed after
+        // configuration or network recovery.
+        resolvedStore = null;
+        throw error;
+      });
   }
   return resolvedStore;
 }

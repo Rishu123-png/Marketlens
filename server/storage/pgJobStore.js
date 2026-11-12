@@ -254,7 +254,10 @@ export function createPgJobStore(client, { now = () => new Date().toISOString() 
         await saveReport(client, { report: result.report, versions: result.versions ?? null });
       }
 
-      for (const item of result?.evidence?.items ?? []) {
+      const evidenceItems = result?.evidenceForStorage?.items ?? [];
+
+      for (const item of evidenceItems) {
+        if (!item?.id || !item?.dedupeFingerprint) continue;
         await client.query(
           `INSERT INTO evidence_items
              (evidence_id, job_id, source_type, publisher, url, published_at, retrieved_at,

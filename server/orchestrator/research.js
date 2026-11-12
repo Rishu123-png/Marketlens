@@ -385,6 +385,10 @@ export async function runResearch(options = {}) {
     indicators: market.indicators,
     chart: market.chart,
     evidence: envelope.evidence,
+    // Raw evidence items (schema-validated) travel separately so storage can
+    // persist them with their fingerprints; the envelope copy is for prompts
+    // and the UI and is deliberately trimmed.
+    evidenceForStorage: evidence,
     agentRuns,
     gate,
     report,

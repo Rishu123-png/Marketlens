@@ -12,7 +12,7 @@
  */
 
 import { drainQueue } from "../server/jobs/worker.js";
-import { getJobStore } from "../server/jobs/store.js";
+import { resolveJobStore } from "../server/jobs/store.js";
 
 const once = process.argv.includes("--once");
 const intervalMs = Number(process.env.WORKER_POLL_MS || 2000);
@@ -20,7 +20,7 @@ let stopping = false;
 
 async function tick() {
   try {
-    const processed = await drainQueue({ store: getJobStore(), limit: 3 });
+    const processed = await drainQueue({ store: await resolveJobStore(), limit: 3 });
     for (const entry of processed) {
       console.log(
         `[worker] job ${entry.job?.jobId ?? "unknown"} → ${entry.job?.status ?? "error"}` +

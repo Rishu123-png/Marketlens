@@ -26,7 +26,6 @@ export async function getStorage(options = {}) {
     if (!cached || cached.kind !== "memory") {
       cached = {
         kind: "memory",
-        jobStore: getJobStore(),
         reports,
         objects: createFilesystemObjectStore({
           root: env.OBJECT_STORE_ROOT || ".data/objects"
@@ -34,6 +33,8 @@ export async function getStorage(options = {}) {
         migrated: false
       };
     }
+    // The shared memory store can be replaced (tests, restart); read it fresh.
+    cached.jobStore = getJobStore();
     return cached;
   }
 

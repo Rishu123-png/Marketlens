@@ -50,7 +50,9 @@ function candles(count = 80) {
 
 function evidence(count = 5) {
   const items = Array.from({ length: count }, (_, index) => ({
+    id: `ev-${index + 1}`,
     evidenceId: `ev-${index + 1}`,
+    dedupeFingerprint: `fingerprint-${index + 1}`,
     sourceType: index === 0 ? "regulatory" : "news",
     publisher: "Example Wire",
     url: `https://example.com/${index + 1}`,
@@ -274,6 +276,8 @@ test("standard depth runs news and sentiment, and keeps their evidence", async (
   assert.equal(result.agentRuns.news.status, "COMPLETED");
   assert.equal(result.agentRuns.sentiment, undefined);
   assert.equal(result.evidence.counts.returned, 5);
+  assert.equal(result.evidenceForStorage.items.length, 5, "raw evidence is carried for persistence");
+  assert.ok(result.evidenceForStorage.items.every((item) => item.dedupeFingerprint));
   assert.equal(result.report.evidenceIds.length, 5);
   assert.ok(result.report.sections.sources.some((line) => line.includes("ev-1")));
 });
