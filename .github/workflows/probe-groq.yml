@@ -8,6 +8,7 @@ on:
 permissions:
   contents: read
   issues: write
+  pull-requests: write
 
 jobs:
   probe:
@@ -88,4 +89,4 @@ jobs:
           open("result.md", "w").write("\n".join(lines))
           print("\n".join(lines))
           PY
-          gh api --method POST "repos/$REPO/issues/7/comments" -F body=@result.md --jq '.html_url'
+          gh pr comment 7 --body-file result.md
