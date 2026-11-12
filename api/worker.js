@@ -7,7 +7,7 @@
 // Limitation: Upstash request-signature verification is not implemented yet;
 // until it is, WORKER_SECRET is mandatory and QStash delivery must be
 // configured to send it.
-import { getJobStore } from "../server/jobs/store.js";
+import { getJobStore, resolveJobStore } from "../server/jobs/store.js";
 import { JobRunner, drainQueue } from "../server/jobs/worker.js";
 
 export default async function handler(req, res) {
@@ -31,7 +31,7 @@ export default async function handler(req, res) {
 
   const body = typeof req.body === "string" ? safeParse(req.body) : req.body || {};
   const jobId = String(body.jobId || "").trim();
-  const store = getJobStore();
+  const store = await resolveJobStore();
 
   if (!jobId) {
     const processed = await drainQueue({ store, limit: 1 });

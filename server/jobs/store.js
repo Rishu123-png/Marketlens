@@ -12,6 +12,7 @@
  * the worker.
  */
 
+import { databaseConfigured } from "../storage/pg.js";
 import {
   applyGate,
   createResearchJob,
@@ -129,14 +130,30 @@ export class InMemoryJobStore {
 }
 
 let sharedStore = new InMemoryJobStore();
+let resolvedStore = null;
 
 export function getJobStore() {
   return sharedStore;
 }
 
+/**
+ * The store the API and worker should use: PostgreSQL when `DATABASE_URL` is
+ * configured (durable, shared), otherwise the in-memory store.
+ */
+export async function resolveJobStore() {
+  if (!databaseConfigured()) return sharedStore;
+  if (!resolvedStore) {
+    resolvedStore = import("../storage/index.js")
+      .then((module) => module.getStorage())
+      .then((storage) => storage.jobStore);
+  }
+  return resolvedStore;
+}
+
 /** Tests only: replace the shared store with a clean instance. */
 export function resetJobStoreForTests() {
   sharedStore = new InMemoryJobStore();
+  resolvedStore = null;
   return sharedStore;
 }
 

@@ -1,5 +1,5 @@
 // Research job status, report and agent runs. Poll this after creating a job.
-import { getJobStore, JobNotFoundError } from "../../server/jobs/store.js";
+import { JobNotFoundError, resolveJobStore } from "../../server/jobs/store.js";
 import { rateLimit } from "../../lib/server/rateLimit.js";
 
 function summariseRun(run) {
@@ -27,7 +27,7 @@ export default async function handler(req, res) {
   }
 
   const jobId = String(req.query?.jobId || "").trim();
-  const store = getJobStore();
+  const store = await resolveJobStore();
 
   try {
     const job = store.get(jobId);

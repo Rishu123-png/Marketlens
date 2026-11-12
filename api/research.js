@@ -2,7 +2,7 @@
 // it validates the request, records a job and hands the job id to the queue.
 import { RESEARCH_DEPTHS, REQUIRED_MODULES_BY_DEPTH } from "../shared/schemas/research.js";
 import { getInstrument, instrumentFromSymbol } from "../shared/instruments/catalog.js";
-import { getJobStore } from "../server/jobs/store.js";
+import { getJobStore, resolveJobStore } from "../server/jobs/store.js";
 import { getQueue, queueStatus } from "../server/jobs/queue.js";
 import { rateLimit } from "../lib/server/rateLimit.js";
 
@@ -59,7 +59,7 @@ export default async function handler(req, res) {
     });
   }
 
-  const store = getJobStore();
+  const store = await resolveJobStore();
   let job = store.create({
     instrumentId: instrument.id,
     depth,

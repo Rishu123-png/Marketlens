@@ -5,6 +5,8 @@
 // symbol. Every capability carries its verification level explicitly.
 import { newsProviderStatus } from "../server/news/providers/index.js";
 import { filingProviderStatus } from "../server/news/filings/index.js";
+import { storageStatus } from "../server/storage/index.js";
+import { queueStatus } from "../server/jobs/queue.js";
 
 const MARKET_KEYS = {
   fmp: "FMP_API_KEY",
@@ -51,6 +53,8 @@ export default function handler(_req, res) {
     ai,
     news,
     filings,
+    storage: storageStatus(),
+    queue: queueStatus(),
     verificationLevels: {
       "configured-unverified": "Credential present; live behaviour not validated in this environment.",
       "not-configured": "No credential; the capability is disabled and reported as unavailable.",
