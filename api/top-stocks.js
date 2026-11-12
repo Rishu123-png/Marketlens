@@ -166,29 +166,59 @@ async function fetchFmp(candidate) {
     );
   }
 
-  const url =
-    "https://financialmodelingprep.com/api/v3/quote/" +
-    `${encodeURIComponent(candidate.symbol)}` +
-    `?apikey=${encodeURIComponent(apiKey)}`;
+  // FMP quotes Indian equities with an exchange suffix (.NS / .BO); fall back
+  // to the bare ticker for symbols that do not use one.
+  const suffix =
+    String(candidate.exchange || "")
+      .toUpperCase()
+      .includes("BSE")
+      ? ".BO"
+      : ".NS";
 
-  const data =
-    await getJson(url);
+  const symbols = [
+    ...new Set([
+      `${candidate.symbol}${suffix}`,
+      candidate.symbol
+    ])
+  ];
 
-  if (
-    !Array.isArray(data) ||
-    !data[0]
-  ) {
-    throw new Error(
-      "FMP returned no quote."
-    );
+  let lastError =
+    "FMP returned no quote.";
+
+  for (const symbol of symbols) {
+    const url =
+      "https://financialmodelingprep.com/api/v3/quote/" +
+      `${encodeURIComponent(symbol)}` +
+      `?apikey=${encodeURIComponent(apiKey)}`;
+
+    const data =
+      await getJson(url);
+
+    if (
+      !Array.isArray(data) ||
+      !data[0]
+    ) {
+      lastError =
+        "FMP returned no quote.";
+      continue;
+    }
+
+    try {
+      return normalizeQuote(
+        data[0],
+        candidate,
+        "Financial Modeling Prep",
+        "fmp"
+      );
+    } catch (error) {
+      lastError =
+        error instanceof Error
+          ? error.message
+          : "FMP returned no quote.";
+    }
   }
 
-  return normalizeQuote(
-    data[0],
-    candidate,
-    "Financial Modeling Prep",
-    "fmp"
-  );
+  throw new Error(lastError);
 }
 
 async function fetchTwelve(candidate) {

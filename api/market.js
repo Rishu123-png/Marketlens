@@ -108,6 +108,18 @@ function getBaseSymbol(symbol) {
     .replace(/\.NSE$/, "");
 }
 
+function getFmpSymbolCandidates(baseSymbol, exchange) {
+  if (baseSymbol.includes(".")) return [baseSymbol];
+
+  const suffix = String(exchange || "")
+    .toUpperCase()
+    .includes("BSE")
+    ? ".BO"
+    : ".NS";
+
+  return [...new Set([`${baseSymbol}${suffix}`, baseSymbol])];
+}
+
 function normalizeQuote(
   item,
   requestedSymbol,
@@ -200,39 +212,55 @@ async function fetchFmp(
   const baseSymbol =
     getBaseSymbol(symbol);
 
-  const url =
-    "https://financialmodelingprep.com/api/v3/quote/" +
-    `${encodeURIComponent(baseSymbol)}` +
-    `?apikey=${encodeURIComponent(apiKey)}`;
+  let lastError =
+    "FMP returned no quote.";
 
-  const data =
-    await getJson(url);
-
-  if (
-    !Array.isArray(data) ||
-    !data[0]
+  // FMP lists Indian equities with an exchange suffix (.NS for NSE, .BO for
+  // BSE). Try the suffixed ticker first, then the bare symbol for symbols that
+  // are quoted globally without one.
+  for (
+    const candidate of
+    getFmpSymbolCandidates(
+      baseSymbol,
+      exchange
+    )
   ) {
-    throw new Error(
-      "FMP returned no quote."
+    const url =
+      "https://financialmodelingprep.com/api/v3/quote/" +
+      `${encodeURIComponent(candidate)}` +
+      `?apikey=${encodeURIComponent(apiKey)}`;
+
+    const data =
+      await getJson(url);
+
+    if (
+      !Array.isArray(data) ||
+      !data[0]
+    ) {
+      lastError =
+        "FMP returned no quote.";
+      continue;
+    }
+
+    if (
+      data[0].price === null ||
+      data[0].price === undefined
+    ) {
+      lastError =
+        "FMP returned no usable price.";
+      continue;
+    }
+
+    return normalizeQuote(
+      data[0],
+      baseSymbol,
+      "Financial Modeling Prep",
+      "fmp",
+      exchange
     );
   }
 
-  if (
-    data[0].price === null ||
-    data[0].price === undefined
-  ) {
-    throw new Error(
-      "FMP returned no usable price."
-    );
-  }
-
-  return normalizeQuote(
-    data[0],
-    baseSymbol,
-    "Financial Modeling Prep",
-    "fmp",
-    exchange
-  );
+  throw new Error(lastError);
 }
 
 async function fetchTwelve(
