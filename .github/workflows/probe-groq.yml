@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   probe:
@@ -51,3 +52,40 @@ jobs:
           print(json.dumps({"usage": d.get("ai",{}).get("usage"), "agents": {k:{"env":v.get("credential",{}).get("envName"),"mode":v.get("credential",{}).get("mode"),"usage":v.get("usage")} for k,v in (d.get("ai",{}).get("agents") or {}).items()}, "market": d.get("market",{}).get("requestStates")}, indent=2))
           PY
           test "$code" = "200"
+      - name: Publish result comment
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          def load(path):
+              try:
+                  return json.load(open(path))
+              except Exception as exc:
+                  return {"error": str(exc)}
+          before = load("before.json")
+          probe = load("probe.json")
+          history = load("history.json")
+          after = load("after.json")
+          lines = [f"### Production Groq credential probe", f"Run: {os.environ['RUN_URL']}", ""]
+          if probe.get("agents"):
+              lines += ["| agent | credential env | mode | status | requests | tokens | HTTP | error |", "| --- | --- | --- | --- | ---: | ---: | ---: | --- |"]
+              for agent, run in probe["agents"].items():
+                  lines.append("| {agent} | `{env}` | {mode} | {status} | {req} | {tok} | {http} | {err} |".format(
+                      agent=agent, env=run.get("credentialEnvName"), mode=run.get("credentialMode"),
+                      status=run.get("status"), req=run.get("requestCount"), tok=(run.get("usage") or {}).get("totalTokens"),
+                      http=run.get("httpStatus"), err=(run.get("error") or "").replace("|", "\|")[:180]))
+          else:
+              lines += ["Probe response:", "```json", json.dumps(probe, indent=2)[:6000], "```"]
+          lines += ["", "**Before usage:** `{}`".format(json.dumps((before.get("ai") or {}).get("usage"))), "**After usage:** `{}`".format(json.dumps((after.get("ai") or {}).get("usage")))]
+          if history.get("candles") is not None:
+              lines += ["", "**History:** `{}`".format(json.dumps({"instrumentId": history.get("instrumentId"), "source": history.get("source"), "candles": len(history.get("candles") or []), "droppedRows": history.get("droppedRows"), "coverage": history.get("coverage"), "cached": history.get("cached")}))]
+          else:
+              lines += ["", "**History error:** `{}`".format(json.dumps(history)[:1500])]
+          open("result.md", "w").write("\n".join(lines))
+          print("\n".join(lines))
+          PY
+          gh api --method POST "repos/$REPO/issues/7/comments" -F body=@result.md --jq '.html_url'
