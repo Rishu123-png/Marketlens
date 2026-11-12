@@ -230,6 +230,11 @@ export function findInstrumentBySymbol(symbol, exchange = "") {
 export function instrumentFromSymbol(symbol, exchange = "") {
   const cleanSymbol = String(symbol || "").trim().toUpperCase();
   const venue = String(exchange || "").trim().toUpperCase();
+
+  // An empty or malformed symbol cannot be derived into a real identity, so it
+  // is rejected instead of producing an instrument like "US-EQ-".
+  if (!/^\^?[A-Z0-9._:&-]{1,40}$/.test(cleanSymbol)) return null;
+
   const known = findInstrumentBySymbol(cleanSymbol, venue);
   if (known) return known;
 
