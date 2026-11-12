@@ -721,6 +721,12 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--green); out
 .diag-table td { color: #aebbc5; font: 8px 'DM Mono', monospace; padding: 5px 4px; border-bottom: 1px solid #131b22; vertical-align: top; }
 .diag-table code { color: #8fb6d4; font-size: 7px; overflow-wrap: anywhere; }
 .diag-table small { display: block; color: #66727c; }
+.workspace-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.workspace-toolbar input, .workspace-toolbar select { background: #0b1116; border: 1px solid #1b252d; color: #c7d1d9; border-radius: 3px; padding: 7px 8px; font: 9px 'DM Mono', monospace; }
+.workspace-toolbar input { flex: 1 1 220px; min-width: 160px; }
+.coverage-workspace .panel, .ai-usage .panel { margin-bottom: 12px; }
+.coverage-workspace .panel-head, .ai-usage .panel-head { align-items: flex-start; }
+
 .diag-request-table { max-height: 300px; overflow: auto; border: 1px solid #1b252d; border-radius: 4px; }
 .diag-run-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; max-height: 360px; overflow: auto; }
 .diag-run-list li { border: 1px solid #1b252d; border-radius: 4px; padding: 7px; background: #0b1116; }

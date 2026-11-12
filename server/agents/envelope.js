@@ -107,7 +107,15 @@ export function buildEvidenceEnvelope({
       country: instrument?.country ?? null,
       currency: instrument?.currency ?? null,
       assetType: instrument?.assetType ?? null,
-      sector: instrument?.sector ?? null
+      sector: instrument?.sector ?? null,
+      providers: instrument?.providers ? { ...instrument.providers } : null,
+      underlyingId: instrument?.underlyingId ?? null,
+      contractTemplate: instrument?.contractTemplate ?? null,
+      expiry: instrument?.expiry ?? null,
+      strike: instrument?.strike ?? null,
+      optionType: instrument?.optionType ?? null,
+      lotSize: instrument?.lotSize ?? null,
+      lotSizeStatus: instrument?.lotSizeStatus ?? null
     },
     marketContext: {
       quote: quote

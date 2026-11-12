@@ -102,6 +102,15 @@ export default async function handler(req, res) {
       dataWarnings: result?.dataWarnings ?? null,
       error: result?.error ?? null,
       versions: result?.versions ?? null,
+      runConfig: result?.runConfig ?? null,
+      dataSnapshot: result?.dataSnapshot ?? null,
+      reproducibility: result?.report
+        ? {
+            replayable: true,
+            replayUrl: `/api/jobs/${encodeURIComponent(jobId)}/replay`,
+            note: "Replay reads stored evidence and data snapshot; it does not fetch a new series."
+          }
+        : { replayable: false, note: "No stored report is available yet." },
       note:
         job.status === "QUEUED" || job.status === "RUNNING"
           ? "Research is still running. Poll again shortly."

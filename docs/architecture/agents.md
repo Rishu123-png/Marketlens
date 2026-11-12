@@ -62,7 +62,7 @@ Common rules for every agent:
 | Question | What could make this research misleading? |
 | Input | Evidence envelope including `quality`, all other agent outputs (for conflict detection) |
 | Analyses | Freshness, provider consistency, candle gaps/duplicates, volatility/ATR, gaps in price, news concentration, contradictions between agents |
-| Output | `dataQuality{status,warnings[]}`, `volatility`, `conflicts[]`, `limitations[]`, `uncertainty: low\|medium\|high`, `publicationGate: pass\|warn\|block` + `gateReasons[]` |
+| Output | `dataQuality{status,warnings[]}`, `volatility`, `conflicts[]`, optional `review{completeness,freshness,reliability,unsupportedClaims[]}`, `limitations[]`, `uncertainty: low\|medium\|high`, `publicationGate: pass\|warn\|block` + `gateReasons[]` |
 | Prohibited | Forcing agreement between agents; softening a critical data failure into a note |
 
 ## 6. Coordinator — synthesis
@@ -72,7 +72,7 @@ Common rules for every agent:
 | Question | What do all the findings mean together? |
 | Input | Only validated specialist outputs + evidence IDs |
 | Analyses | Completeness check, agreement/disagreement mapping, fact vs interpretation separation, final narrative |
-| Output | Sections 1–10 (summary, market context, chart, technical, news, sentiment, risk, conflicts, what to monitor, sources/methodology) + `agentStatus` per specialist |
+| Output | Sections 1–10 (summary, market context, chart, technical, news, sentiment, risk, conflicts, what to monitor, sources/methodology) + `scenarios{bullish,bearish,neutral}` + `agentStatus` per specialist |
 | Prohibited | Filling a failed section; inventing a finding; overriding the Risk agent's gate |
 
 ## Prompt assembly order
@@ -93,10 +93,14 @@ path over the same envelope*, never a way to acquire new data.
 
 | Tool | Reads | Limit |
 | --- | --- | --- |
-| `read_candles` | Recent OHLCV candles already in `marketContext.recentCandles` | 1–30 candles |
-| `read_indicator` | One calculated indicator from `technical` | known keys only |
-| `search_evidence` | Keyword match over supplied evidence items | 1–10 matches |
-| `read_evidence` | One evidence item by id | must exist in the envelope |
+| `get_quote` | The validated quote already in the envelope | null when absent |
+| `get_historical_candles` | Recent OHLCV candles already in `marketContext.recentCandles` | 1–30 candles |
+| `get_instrument_info` | Resolved instrument identity and derivative metadata | exact envelope object |
+| `get_technical_indicators` | Deterministic indicator values | 1–12 keys |
+| `get_company_news` | Company news/filing evidence already retrieved | 1–10 matches |
+| `get_market_events` | Regulatory/official/market-event evidence | 1–10 matches |
+| `get_market_overview` | Quote freshness, candle range, coverage and warnings | this run only |
+| `read_candles`, `read_indicator`, `search_evidence`, `read_evidence` | Backward-compatible aliases of the same envelope reads | same limits |
 
 Enforced in `server/agents/tools.js` and `server/ai/runAgent.js`:
 

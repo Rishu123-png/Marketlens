@@ -10,7 +10,9 @@ const VIEWS = [
   ["research", "Research", "Agents"],
   ["watchlists", "Watchlists", "Alerts"],
   ["portfolio", "Portfolio", "Virtual"],
-  ["diagnostics", "Diagnostics", "Data & AI"]
+  ["diagnostics", "Diagnostics", "Data & AI"],
+  ["coverage", "Coverage", "Market data"],
+  ["ai-usage", "AI Usage", "Models"]
 ];
 
 /**

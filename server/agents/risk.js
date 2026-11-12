@@ -6,6 +6,7 @@ const OUTPUT_CONTRACT = `{
   "dataQuality": { "status": "good|degraded|poor", "warnings": string[] },
   "volatility": { "level": "low|normal|elevated|extreme|unknown", "note": string|null },
   "conflicts": string[],
+  "review": { "completeness": "adequate|partial|insufficient", "freshness": "current|delayed|stale|unknown", "reliability": "good|mixed|poor|unknown", "unsupportedClaims": string[] },
   "uncertainty": "low|medium|high",
   "publicationGate": "pass|warn|block",
   "gateReasons": string[]
@@ -33,13 +34,14 @@ export const riskAgent = {
     return buildAgentMessages({
       role: "Risk Agent (data quality and uncertainty)",
       task:
-        "Judge what could make this research misleading. Use the quality block, quote freshness, candle coverage, news coverage and the specialist findings. Your text can raise warnings and uncertainty, but the publication verdict itself is computed deterministically elsewhere; do not claim authority over it.",
+        "Independently judge what could make this research misleading. Review completeness, data freshness, provider reliability, conflicts between specialists and any claim the supplied evidence does not support. Use the quality block, quote freshness, candle coverage, news coverage and the specialist findings. Your text can raise warnings and uncertainty, but the publication verdict itself is computed deterministically elsewhere; do not claim authority over it.",
       envelope: { ...envelope, specialistFindings: specialists },
       outputContract: OUTPUT_CONTRACT,
       rules: [
         "Report data-quality problems plainly; never soften a critical failure into a footnote.",
         "Do not force agreement between specialists. Where they disagree, list the disagreement.",
-        "publicationGate is advisory text only; the deterministic gate is authoritative."
+        "publicationGate is advisory text only; the deterministic gate is authoritative.",
+        "List a specialist claim in review.unsupportedClaims when it has no supporting evidenceId and is not a restatement of supplied calculated values. Do not invent a replacement claim."
       ]
     });
   }

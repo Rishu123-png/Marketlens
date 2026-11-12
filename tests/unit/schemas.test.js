@@ -129,6 +129,7 @@ const validReport = {
     news: "Unavailable",
     sentiment: "Unavailable",
     risk: "Risk",
+    scenarios: "Bull, bear and neutral scenarios",
     conflicts: [],
     observations: ["a"],
     limitations: "Limitations",

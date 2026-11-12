@@ -140,6 +140,11 @@ function coordinatorOutput() {
       sourcesAndMethodology: section("Sources body")
     },
     disagreements: ["Chart sees consolidation, technical sees mixed momentum"],
+    scenarios: {
+      bullish: { thesis: "Continuation above support.", evidenceIds: [], conditions: ["Volume expands"], uncertainty: "medium", invalidation: "Close below support" },
+      bearish: { thesis: "Range breakdown risk.", evidenceIds: [], conditions: ["Support fails"], uncertainty: "medium", invalidation: "Reclaim of resistance" },
+      neutral: { thesis: "Range persists.", evidenceIds: [], conditions: ["No breakout"], uncertainty: "low", invalidation: "Sustained trend" }
+    },
     agentStatus: {
       chart: "COMPLETED",
       technical: "COMPLETED",
@@ -263,6 +268,16 @@ test("quick research completes with deterministic facts and ordered agents", asy
   assert.match(report.sections.methodology, /Publication gate/);
   assert.ok(report.sections.sources.length > 0);
   assert.equal(report.gate.verdict, result.gate.verdict);
+  assert.match(report.sections.scenarios, /Bullish scenario/);
+  assert.match(report.sections.scenarios, /not forecasts/);
+
+  assert.equal(result.runConfig.runId, result.runId);
+  assert.equal(result.runConfig.instrument.exchange, "NSE");
+  assert.equal(result.runConfig.agentConfig.coordinator.model, "stub-model");
+  assert.equal(result.runConfig.candleRange.count, 80);
+  assert.equal(result.dataSnapshot.candles.count, 80);
+  assert.match(result.dataSnapshot.snapshotHash, /^[a-f0-9]{16}$/);
+  assert.equal(result.reproducibility.replayable, true);
 });
 
 test("standard depth runs news and sentiment, and keeps their evidence", async () => {

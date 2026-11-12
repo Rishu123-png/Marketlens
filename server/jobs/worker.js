@@ -58,6 +58,10 @@ export class JobRunner {
         quote: result.quote,
         candles: result.candles,
         versions: result.versions,
+        runConfig: result.runConfig ?? null,
+        dataSnapshot: result.dataSnapshot ?? null,
+        runId: result.runId ?? null,
+        reproducibility: result.reproducibility ?? null,
         status: result.status
       });
 

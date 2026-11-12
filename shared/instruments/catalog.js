@@ -12,7 +12,7 @@
  * for that provider rather than being sent a fabricated symbol.
  */
 
-const ASSET_CODE = { equity: "EQ", index: "IDX", etf: "ETF" };
+const ASSET_CODE = { equity: "EQ", index: "IDX", etf: "ETF", future: "FUT", option: "OPT" };
 
 const RAW_INSTRUMENTS = [
   // ---------------------------------------------------------------- India, equities
@@ -305,6 +305,61 @@ const RAW_INSTRUMENTS = [
   },
 
   // ---------------------------------------------------------------- ETFs
+  // ---------------------------------------------------------------- India, derivatives
+  // Identity templates, not live contracts. A front-month contract changes
+  // expiry every month, so pinning a date here would silently become stale.
+  // These entries exist to prove exchange/underlying identity and to make the
+  // honest answer visible: no configured zero-budget provider supplies Indian
+  // derivative quotes or candles, and no provider symbol is guessed.
+  {
+    id: "IN-FUT-NIFTY50-FRONT",
+    symbol: "NIFTY-FUT",
+    name: "Nifty 50 futures (front-month template)",
+    exchange: "NSE",
+    assetType: "future",
+    sector: "Broad Market",
+    underlyingId: "IN-IDX-NIFTY50",
+    contractTemplate: true,
+    expiry: null,
+    lotSize: 65,
+    lotSizeStatus: "verified",
+    lotSizeEffectiveFrom: "2025-12-30",
+    lotSizeSource: "NSE circular NSE/FAOP/70616 (2025-10-03), https://nsearchives.nseindia.com/content/circulars/FAOP70616.pdf"
+  },
+  {
+    id: "IN-FUT-NIFTYBANK-FRONT",
+    symbol: "BANKNIFTY-FUT",
+    name: "Nifty Bank futures (front-month template)",
+    exchange: "NSE",
+    assetType: "future",
+    sector: "Banking",
+    underlyingId: "IN-IDX-NIFTYBANK",
+    contractTemplate: true,
+    expiry: null,
+    lotSize: 30,
+    lotSizeStatus: "verified",
+    lotSizeEffectiveFrom: "2025-12-30",
+    lotSizeSource: "NSE circular NSE/FAOP/70616 (2025-10-03), https://nsearchives.nseindia.com/content/circulars/FAOP70616.pdf"
+  },
+  {
+    id: "IN-OPT-NIFTY50-ATM-FRONT",
+    symbol: "NIFTY-ATM-OPT",
+    name: "Nifty 50 ATM option (front-month template)",
+    exchange: "NSE",
+    assetType: "option",
+    sector: "Broad Market",
+    underlyingId: "IN-IDX-NIFTY50",
+    contractTemplate: true,
+    expiry: null,
+    strike: null,
+    optionType: null,
+    lotSize: 65,
+    lotSizeStatus: "verified",
+    lotSizeEffectiveFrom: "2025-12-30",
+    lotSizeSource: "NSE circular NSE/FAOP/70616 (2025-10-03), https://nsearchives.nseindia.com/content/circulars/FAOP70616.pdf"
+  },
+
+  // ---------------------------------------------------------------- ETFs
   {
     id: "IN-ETF-BANKBEES",
     symbol: "BANKBEES",
@@ -362,7 +417,18 @@ function normalizeInstrument(raw) {
     currency,
     assetType,
     sector: raw.sector || "Unclassified",
-    providers: raw.providers ? Object.freeze({ ...raw.providers }) : null
+    providers: raw.providers ? Object.freeze({ ...raw.providers }) : null,
+    // Derivative identity is carried only when supplied. Equities and indices
+    // do not acquire null derivative fields just because the schema allows them.
+    ...(raw.underlyingId ? { underlyingId: raw.underlyingId } : {}),
+    ...(raw.contractTemplate !== undefined ? { contractTemplate: raw.contractTemplate } : {}),
+    ...(raw.expiry !== undefined ? { expiry: raw.expiry } : {}),
+    ...(raw.strike !== undefined ? { strike: raw.strike } : {}),
+    ...(raw.optionType !== undefined ? { optionType: raw.optionType } : {}),
+    ...(raw.lotSize !== undefined ? { lotSize: raw.lotSize } : {}),
+    ...(raw.lotSizeStatus ? { lotSizeStatus: raw.lotSizeStatus } : {}),
+    ...(raw.lotSizeEffectiveFrom ? { lotSizeEffectiveFrom: raw.lotSizeEffectiveFrom } : {}),
+    ...(raw.lotSizeSource ? { lotSizeSource: raw.lotSizeSource } : {})
   });
 }
 
@@ -454,10 +520,10 @@ export function resolveProviderSymbol(instrument, providerId) {
   const explicit = instrument.providers?.[providerId];
   if (explicit) return explicit;
 
-  // Indices use provider-specific conventions that cannot be derived, so they
-  // require an explicit mapping. ETFs are exchange-listed and follow the same
-  // convention as equities.
-  if (instrument.assetType === "index") return null;
+  // Indices and derivatives use provider-specific conventions that cannot be
+  // derived from an equity symbol, so they require an explicit mapping. ETFs
+  // are exchange-listed and follow the equity convention.
+  if (["index", "future", "option"].includes(instrument.assetType)) return null;
 
   if (providerId === "fmp") {
     if (instrument.country !== "IN") return instrument.symbol;
