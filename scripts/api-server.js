@@ -8,6 +8,7 @@ const routes = new Set([
   "finnhub",
   "health",
   "history",
+  "instruments",
   "market",
   "provider-status",
   "report",

@@ -31,5 +31,7 @@ edit the `Decision` column and I will adjust the plan.
 | Bollinger deviation | Population standard deviation (`ddof = 0`) | Matches TradingView's default |
 | Agent output transport | Strict JSON validated against `shared/schemas` | Orchestrator must reject malformed agent output, not "repair" it |
 | Progress delivery | Polling first, SSE later | Simpler to run on Vercel; SSE needs a streaming-capable host |
+| Instrument identity | Internal IDs (`IN-EQ-RELIANCE`) with exchange/country/currency; provider tickers resolved per adapter, indices only by explicit mapping | Symbols are reused across venues and providers; deriving an index ticker would be a guess |
+| Quote access | Everything goes through `server/market-data/gateway.js` | One place for provider order, fallback, caching and the no-fabrication rule |
 | Prompt-injection defence | News text in a delimited evidence block, never in the system prompt; instructions repeated in the user turn | Retrieved content is untrusted input |
 | Provider key rotation | **Not implemented** | Rotating keys to evade rate limits violates provider terms; instead cache, batch, and limit per client |

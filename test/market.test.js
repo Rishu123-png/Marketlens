@@ -70,11 +70,13 @@ test("FMP falls back to the bare ticker when the suffixed one is empty", async (
 
     try {
       const res = mockResponse();
-      await marketHandler({ query: { symbol: "FALLBACKTEST" } }, res);
+      await marketHandler({ query: { symbol: "FALLBACKTEST", exchange: "NSE" } }, res);
 
       assert.equal(res.statusCode, 200);
       assert.equal(res.body.price, 10);
       assert.equal(requested.length, 2);
+      assert.match(requested[0], /FALLBACKTEST\.NS/);
+      assert.match(requested[1], /FALLBACKTEST\?/);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -117,4 +119,26 @@ test("market endpoint rejects malformed symbols without calling providers", asyn
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("a symbol with no exchange is queried once, without an invented venue", async () => {
+  await withEnvironment({ FMP_API_KEY: "test-key", PRIMARY_MARKET_PROVIDER: "fmp" }, async () => {
+    const requested = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      requested.push(String(url));
+      return Response.json([{ symbol: "VENUELESS", price: 5 }]);
+    };
+
+    try {
+      const res = mockResponse();
+      await marketHandler({ query: { symbol: "VENUELESS" } }, res);
+
+      assert.equal(res.statusCode, 200);
+      assert.equal(requested.length, 1);
+      assert.match(requested[0], /quote\/VENUELESS\?/);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });

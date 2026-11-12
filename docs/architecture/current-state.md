@@ -18,16 +18,25 @@ Audit date: 2026-11-12. Commit `5adc24e` on `arena/32b040eb-marketlens`.
 | Tests | 12 passing (`node --test`) | `test/` |
 | CI | npm audit + test + build | `.github/workflows/ci.yml` |
 
-Verified: `npm ci`, `npm test` 12/12, `npm run build`, `npm audit` clean, all
+Verified: `npm ci`, `npm test` (72 tests), `npm run build`, `npm run check`, all
 `/api/*` routes probed with and without provider keys.
+
+## Delivered since the audit
+
+| Increment | What landed |
+| --- | --- |
+| M1 | `docs/architecture/`; `server/indicators/` with reference tests; `npm run check` syntax guard in CI |
+| M2 (market-data) | `shared/instruments/catalog.js` (36 instruments, India + US, equities/indices/ETFs, stable IDs); provider adapters under `server/market-data/providers/`; one `gateway.js` for order/fallback/cache; `GET /api/instruments`; per-client rate limits on quotes, batch, search and instrument routes |
+
+Remaining from the audit: news ingestion, agents, orchestration, persistence.
 
 ## Gap analysis
 
 | Blueprint capability | Today | Gap |
 | --- | --- | --- |
-| Multi-market instruments | Hard-coded 20 NSE symbols in `lib/stock-universe.js` | No instrument registry, no global symbols, no internal IDs |
-| Provider adapters | Per-file `fetchFmp`/`fetchTwelve`/`fetchAlpha`, duplicated in `market.js` and `top-stocks.js` | Extract one adapter layer; normalize once |
-| Normalized quote schema | Ad-hoc objects; `market.js` and `top-stocks.js` differ | Define `shared/schemas` |
+| Multi-market instruments | **Done** — catalog with internal IDs, 36 instruments across IN/US | Grow by data import; coverage still needs provider-by-provider verification |
+| Provider adapters | **Done** — `server/market-data/providers/*`, one adapter per provider | Finnhub adapter still missing; add when its quotes are needed |
+| Normalized quote schema | **Done** — `normalize.js`, identical shape for every provider | Promote the shape to `shared/schemas` when agents need runtime validation |
 | Historical candles | Renewed, Twelve/Alpha only, no storage | No persistence, no intraday for Alpha |
 | Indicator engine | None (only a toy `rsi` in unused `src/lib/analysis.js`) | **Delivered in M1** |
 | News ingestion | `NEWS_API_KEY` read by health only, never used | No provider, no dedupe, no freshness model |
@@ -37,7 +46,7 @@ Verified: `npm ci`, `npm test` 12/12, `npm run build`, `npm audit` clean, all
 | Reports history | None | No storage or comparison |
 | Database | None | PostgreSQL not wired |
 | Frontend pages | One dashboard + modal | Router, 8 pages, chart rendering (no chart lib installed) |
-| Rate limiting | Report only | Quotes/search/batch routes unprotected |
+| Rate limiting | **Done** — report 5/10 min, market 120/min, batch 30/min, search 30/min, instruments 120/min | Add shared store in production (Upstash) or limits stay per-instance |
 | Observability | None | No timing, no agent failure metrics |
 
 ## Files that are dead or duplicated
@@ -46,7 +55,7 @@ Verified: `npm ci`, `npm test` 12/12, `npm run build`, `npm audit` clean, all
 | --- | --- | --- |
 | `src/lib/marketClient.js` | Never imported | Delete, or keep as the API client after the `services/` refactor |
 | `src/lib/analysis.js` | Never imported; its `rsi` is a naive average-based approximation, not Wilder | Delete; superseded by `server/indicators/` |
-| `api/finnhub.js` | Never called by the UI; not the gateway used by `/api/market` | Fold into the provider adapter layer |
+| `api/finnhub.js` | Never called by the UI; not part of the gateway | Fold into `server/market-data/providers/finnhub.js` when global coverage is needed |
 | `api/provider-status.js` | Duplicates `api/health.js` reporting | Keep one endpoint |
 | `api/history.js` | No frontend caller (Chart Lab will use it) | Keep; becomes the candle source for Chart Lab |
 

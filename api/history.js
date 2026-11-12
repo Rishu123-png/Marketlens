@@ -141,7 +141,7 @@ export default async function handler(req, res) {
     .trim()
     .toUpperCase();
 
-  if (!/^[A-Z0-9._:&-]{1,40}$/.test(symbol)) {
+  if (!/^\^?[A-Z0-9._:&-]{1,40}$/.test(symbol)) {
     return send(res, 400, { error: "A valid symbol is required." });
   }
 

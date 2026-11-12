@@ -21,6 +21,25 @@ npm test       # Node's built-in test runner
 npm run build  # production frontend build
 ```
 
+## API
+
+All routes are same-origin under `/api` and are per-client rate limited.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/instruments` | Instrument catalog. Filters: `country`, `exchange`, `assetType` (`equity`/`index`/`etf`), `sector`; search with `q`; lookup with `id`; paging with `limit`/`offset` |
+| `GET /api/market?symbol=&exchange=` | One verified quote |
+| `GET /api/top-stocks` | Ranked popular NSE quotes (5 min cache) |
+| `GET /api/search?q=` | Provider-backed symbol search for instruments outside the catalog |
+| `GET /api/history?symbol=&interval=` | Historical candles (Twelve Data / Alpha Vantage) |
+| `POST /api/report` | AI report over server-fetched, verified metrics only |
+| `GET /api/universe` | Legacy curated list of 20 popular NSE stocks |
+| `GET /api/health` | Provider key configuration status |
+
+Instrument identity comes from `shared/instruments/catalog.js`; quotes always go
+through `server/market-data/gateway.js`, which owns provider order, fallback,
+caching and the rule that an unverified price is never returned.
+
 ## Architecture
 
 Market Lens is being extended from a quote dashboard into a multi-agent research
