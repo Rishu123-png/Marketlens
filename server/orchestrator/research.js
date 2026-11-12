@@ -25,6 +25,7 @@ import { ENVELOPE_VERSION, buildEvidenceEnvelope, evidenceIdsOf } from "../agent
 import { PROMPT_ENVELOPE_VERSION } from "../agents/prompt.js";
 import { validateAgentOutput } from "../agents/guard.js";
 import { runAgent } from "../ai/runAgent.js";
+import { buildCoverage, coverageSummary } from "../evidence/coverage.js";
 import { toolsForAgent } from "../ai/toolPolicy.js";
 import { groqProvider } from "../ai/providers/groq.js";
 import { getAgentConfig } from "../ai/config.js";
@@ -262,7 +263,7 @@ export async function runResearch(options = {}) {
     indicators: market.indicators,
     chart: market.chart,
     evidence,
-    quality: { dataWarnings: warnings },
+    quality: { dataWarnings: warnings, coverage: coverageSummary(buildCoverage({ now })) },
     generatedAt: now().toISOString()
   });
 

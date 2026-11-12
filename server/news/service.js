@@ -88,6 +88,16 @@ export async function gatherEvidence(options = {}) {
   }
 
   for (const provider of filingProviders) {
+    if (provider.supports && !provider.supports(instrument)) {
+      sources.push({
+        id: provider.id,
+        status: "not-applicable",
+        items: 0,
+        reason: "This source does not cover the instrument's exchange."
+      });
+      continue;
+    }
+
     if (!provider.isConfigured()) {
       sources.push({ id: provider.id, status: "not-configured", items: 0, reason: "Upstream credentials are not configured." });
       continue;

@@ -35,7 +35,7 @@ export function newsProviderStatus() {
     ...(provider.id === "official-rss"
       ? {
           activeFeeds: provider.configuredFeedCount(),
-          unverifiedFeeds: provider.unverifiedCandidates()
+          feedStatus: provider.feedStatus()
         }
       : {})
   }));

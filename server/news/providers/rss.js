@@ -1,6 +1,6 @@
 import { fetchText } from "../http.js";
 import { parseFeed } from "../rss.js";
-import { activeFeeds, CANDIDATE_FEEDS } from "../feeds.js";
+import { activeFeeds, feedStatus } from "../feeds.js";
 
 const SOURCE = "Official RSS";
 
@@ -37,13 +37,9 @@ export const rssProvider = {
     return activeFeeds().length;
   },
 
-  /** Exposed for the provider-status endpoint: candidates are not integrations. */
-  unverifiedCandidates() {
-    return CANDIDATE_FEEDS.filter((feed) => !feed.verified).map((feed) => ({
-      id: feed.id,
-      publisher: feed.publisher,
-      status: "unverified-configuration"
-    }));
+  /** Exposed for the provider-status/coverage endpoints: documented ≠ reachable. */
+  feedStatus() {
+    return feedStatus();
   },
 
   async search({ query, instrument, limit = 10 }) {
@@ -54,26 +50,39 @@ export const rssProvider = {
     const results = [];
     const failures = [];
 
-    for (const feed of feeds) {
-      try {
-        const xml = await fetchText(feed.url, { timeoutMs: 8_000 });
-        const entries = parseFeed(xml, { limit: 30 }).filter((entry) => matches(entry, keywords));
+    // Poll feeds concurrently: one slow publisher must not serialise the rest,
+    // and each failure is reported instead of aborting the whole search.
+    const settled = await Promise.allSettled(
+      feeds.map(async (feed) => {
+        const xml = await fetchText(feed.url, { timeoutMs: 5_000 });
+        return { feed, entries: parseFeed(xml, { limit: 30 }).filter((entry) => matches(entry, keywords)) };
+      })
+    );
 
-        for (const entry of entries) {
-          results.push({
-            title: entry.title,
-            url: entry.url,
-            publisher: feed.publisher,
-            publishedAt: entry.publishedAt,
-            excerpt: entry.excerpt,
-            sourceType: feed.sourceType === "regulatory" ? "regulatory" : "announcement",
-            verification: "verified",
-            provider: "official-rss",
-            language: "en"
-          });
-        }
-      } catch (error) {
-        failures.push({ feed: feed.id, message: error instanceof Error ? error.message : "feed failed" });
+    for (const outcome of settled) {
+      if (outcome.status === "rejected") {
+        const feed = feeds[settled.indexOf(outcome)];
+        failures.push({
+          feed: feed?.id ?? "unknown",
+          message: outcome.reason instanceof Error ? outcome.reason.message : "feed failed"
+        });
+        continue;
+      }
+
+      const { feed, entries } = outcome.value;
+      for (const entry of entries) {
+        results.push({
+          title: entry.title,
+          url: entry.url,
+          publisher: feed.publisher,
+          publishedAt: entry.publishedAt,
+          excerpt: entry.excerpt,
+          sourceType: feed.sourceType === "regulatory" ? "regulatory" : "announcement",
+          verification: "verified",
+          provider: "official-rss",
+          language: "en",
+          metadata: { feedId: feed.id, liveVerified: false, termsUrl: feed.termsUrl ?? null }
+        });
       }
     }
 

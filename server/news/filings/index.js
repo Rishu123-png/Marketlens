@@ -1,4 +1,5 @@
 import { fetchJson } from "../http.js";
+import { secEdgarFilingsProvider } from "../../evidence/secEdgar.js";
 
 /**
  * Official filings / announcements adapters.
@@ -12,6 +13,9 @@ import { fetchJson } from "../http.js";
  * validates it against the exchange's own page.
  *
  * Do not enable these in production without checking exchange terms of use.
+ * NSE's terms prohibit systematic automated collection without written consent,
+ * so `NSE_FILINGS_COOKIE` exists for operators with a licence, not as a default.
+ * The official SEC EDGAR adapter is registered alongside them for US listings.
  */
 
 const NSE_ENDPOINT = "https://www.nseindia.com/api/corporate-announcements";
@@ -78,13 +82,18 @@ export const bseFilingsProvider = {
   }
 };
 
-export const FILING_PROVIDERS = [nseFilingsProvider, bseFilingsProvider];
+export const FILING_PROVIDERS = [secEdgarFilingsProvider, nseFilingsProvider, bseFilingsProvider];
 
 export function filingProviderStatus() {
   return FILING_PROVIDERS.map((provider) => ({
     id: provider.id,
     label: provider.label,
     configured: provider.isConfigured(),
-    status: provider.isConfigured() ? "configured-unverified" : "disabled-requires-credentials"
+    ...(provider.id === "sec-edgar"
+      ? { status: provider.isConfigured() ? "configured-official" : "disabled-requires-SEC_USER_AGENT" }
+      : { status: provider.isConfigured() ? "configured-unverified" : "disabled-requires-credentials" }),
+    ...(provider.id === "nse-announcements"
+      ? { termsRisk: true, note: "NSE terms prohibit automated collection without written consent." }
+      : {})
   }));
 }

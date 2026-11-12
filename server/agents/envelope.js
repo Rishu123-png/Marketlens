@@ -127,6 +127,7 @@ export function buildEvidenceEnvelope({
     },
     quality: {
       dataWarnings: quality.dataWarnings ?? [],
+      coverage: quality.coverage ?? null,
       candleDroppedRows: candles?.droppedRows ?? 0,
       newsRejected: evidence?.counts?.rejected ?? 0,
       quoteFreshness: quality.quoteFreshness ?? null

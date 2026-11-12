@@ -7,6 +7,7 @@ import { newsProviderStatus } from "../server/news/providers/index.js";
 import { filingProviderStatus } from "../server/news/filings/index.js";
 import { storageStatus } from "../server/storage/index.js";
 import { queueStatus } from "../server/jobs/queue.js";
+import { buildCoverage } from "../server/evidence/coverage.js";
 
 const MARKET_KEYS = {
   fmp: "FMP_API_KEY",
@@ -40,6 +41,7 @@ export default function handler(_req, res) {
 
   const news = newsProviderStatus();
   const filings = filingProviderStatus();
+  const coverage = buildCoverage();
 
   res.status(200).json({
     ok: true,
@@ -53,6 +55,8 @@ export default function handler(_req, res) {
     ai,
     news,
     filings,
+    coverage,
+    aiProvider: { id: "groq", role: "single AI backbone for all agents", configured: Boolean(process.env.GROQ_API_KEY) },
     storage: storageStatus(),
     queue: queueStatus(),
     verificationLevels: {
