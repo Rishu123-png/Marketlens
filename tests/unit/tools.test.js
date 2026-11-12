@@ -130,14 +130,14 @@ test("agent loop executes tool calls and returns validated JSON with summed usag
     {
       content: "",
       toolCalls: [{ id: "call-1", name: "read_indicator", arguments: '{"name":"rsi"}' }],
-      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
       model: "stub-1",
       provider: "stub"
     },
     {
       content: JSON.stringify({ summary: "RSI 58.2" }),
       toolCalls: [],
-      usage: { prompt_tokens: 20, completion_tokens: 8, total_tokens: 28 },
+      usage: { promptTokens: 20, completionTokens: 8, totalTokens: 28 },
       model: "stub-1",
       provider: "stub"
     }
@@ -155,7 +155,7 @@ test("agent loop executes tool calls and returns validated JSON with summed usag
   assert.deepEqual(result.output, { summary: "RSI 58.2" });
   assert.equal(result.toolRounds, 1);
   assert.deepEqual(result.toolCalls, [{ name: "read_indicator", ok: true }]);
-  assert.deepEqual(result.usage, { prompt_tokens: 30, completion_tokens: 13, total_tokens: 43 });
+  assert.deepEqual(result.usage, { promptTokens: 30, completionTokens: 13, totalTokens: 43 });
 
   const followUp = provider.calls[1].messages;
   assert.equal(followUp[1].role, "assistant");

@@ -8,6 +8,7 @@ import { filingProviderStatus } from "../server/news/filings/index.js";
 import { storageStatus } from "../server/storage/index.js";
 import { queueStatus } from "../server/jobs/queue.js";
 import { buildCoverage } from "../server/evidence/coverage.js";
+import { DEFAULT_MODEL, FALLBACK_MODEL } from "../server/ai/config.js";
 
 const MARKET_KEYS = {
   fmp: "FMP_API_KEY",
@@ -56,7 +57,17 @@ export default function handler(_req, res) {
     news,
     filings,
     coverage,
-    aiProvider: { id: "groq", role: "single AI backbone for all agents", configured: Boolean(process.env.GROQ_API_KEY) },
+    aiProvider: {
+      id: "groq",
+      role: "single AI backbone for all agents",
+      configured: Boolean(process.env.GROQ_API_KEY),
+      model: process.env.GROQ_MODEL || DEFAULT_MODEL,
+      modelSource: process.env.GROQ_MODEL ? "GROQ_MODEL" : "default",
+      fallbackModel: FALLBACK_MODEL,
+      modelFallbackEnabled: !["off", "false", "0", "disabled"].includes(
+        String(process.env.AI_MODEL_FALLBACK ?? "on").toLowerCase()
+      )
+    },
     storage: storageStatus(),
     queue: queueStatus(),
     verificationLevels: {

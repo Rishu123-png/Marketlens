@@ -66,7 +66,17 @@ export const agentRunSchema = z
       .max(12)
       .optional(),
     toolRounds: nonNegativeIntegerSchema.max(6).optional(),
-    toolsDisabled: z.boolean().optional()
+    toolsDisabled: z.boolean().optional(),
+
+    // Recorded when a configured model was rejected as model_not_found and the
+    // run continued on the fallback model. Never silent.
+    modelFallback: z
+      .object({
+        from: z.string().min(1).max(120).nullable(),
+        to: z.string().min(1).max(120)
+      })
+      .nullable()
+      .optional()
   })
   .superRefine((run, context) => {
     if (run.status === "COMPLETED") {

@@ -15,7 +15,8 @@ function summariseRun(run) {
     schemaVersion: run.schemaVersion,
     durationMs: run.durationMs,
     startedAt: run.startedAt,
-    completedAt: run.completedAt
+    completedAt: run.completedAt,
+    modelFallback: run.modelFallback ?? null
   };
 }
 
