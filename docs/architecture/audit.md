@@ -104,7 +104,7 @@ Single call site: `api/report.js`.
 | Aspect | Current value |
 | --- | --- |
 | Endpoint | `https://api.groq.com/openai/v1/chat/completions` |
-| Model | `process.env.GROQ_MODEL`, default `llama-3.3-70b-versatile` |
+| Model | `process.env.GROQ_MODEL`, default `openai/gpt-oss-120b` (fallback `AI_MODEL_FALLBACK=on` → `modelFallback` on the run) |
 | Temperature | 0.1 |
 | Response format | `json_object` |
 | Timeout | 20 s via `AbortController` |

@@ -1,3 +1,5 @@
+import { DEFAULT_MODEL } from "../config.js";
+
 /**
  * Groq adapter.
  *
@@ -61,6 +63,11 @@ export const groqProvider = {
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
+      // gpt-oss is a reasoning model: hidden reasoning tokens share the
+      // completion budget, so ask for low effort on structured extraction. Other
+      // models reject the parameter, so it is only sent for gpt-oss ids.
+      const isReasoningModel = /^openai\/gpt-oss/i.test(String(model ?? ""));
+
       const response = await fetchImpl(ENDPOINT, {
         method: "POST",
         headers: {
@@ -70,6 +77,7 @@ export const groqProvider = {
         body: JSON.stringify({
           model,
           temperature,
+          ...(isReasoningModel ? { reasoning_effort: "low" } : {}),
           ...(responseFormat ? { response_format: responseFormat } : {}),
           ...(maxOutputTokens ? { max_tokens: maxOutputTokens } : {}),
           ...(Array.isArray(tools) && tools.length
@@ -89,20 +97,34 @@ export const groqProvider = {
       }
 
       if (!response.ok) {
-        const message =
+        const providerMessage =
           data?.error?.message ||
           (typeof data?.error === "string" ? data.error : null) ||
           (text ? text.slice(0, 200) : `Provider HTTP ${response.status}`);
 
+        // A retired model and a revoked key both surface as 4xx, but only the
+        // model case is recoverable by configuration (or the configured
+        // fallback), so it gets its own kind instead of a generic provider error.
+        const providerCode = String(data?.error?.code ?? "");
+        const modelNotFound =
+          response.status === 404 &&
+          (providerCode === "model_not_found" ||
+            /does not exist or you do not have access|model_not_found/i.test(String(providerMessage)));
+
         const toolRelated =
           response.status === 400 &&
-          /tool|function_call|response_format/i.test(String(message));
+          /tool|function_call|response_format/i.test(String(providerMessage));
+
+        const message = modelNotFound
+          ? `Groq model "${model}" is unavailable for this key (model_not_found). ` +
+            `Set GROQ_MODEL to a model your plan serves, for example "${DEFAULT_MODEL}".`
+          : providerMessage;
 
         throw new AIProviderError(message, {
           status: response.status,
-          retryable: response.status === 429 || response.status >= 500,
+          retryable: !modelNotFound && (response.status === 429 || response.status >= 500),
           retryAfterSeconds: parseRetryAfter(response.headers),
-          kind: toolRelated ? "tools-unsupported" : "provider"
+          kind: modelNotFound ? "model-not-found" : toolRelated ? "tools-unsupported" : "provider"
         });
       }
 

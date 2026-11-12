@@ -32,14 +32,32 @@ export class AICompletionError extends Error {
 
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Usage arrives in camelCase from the provider adapter (and is validated by
+ * `tokenUsageSchema`), but tests and some callers use OpenAI's snake_case. Both
+ * are accepted and normalised so multi-round tool usage is actually summed.
+ */
+function normalizeUsage(usage) {
+  if (!usage) return null;
+
+  const promptTokens = Number(usage.promptTokens ?? usage.prompt_tokens) || 0;
+  const completionTokens = Number(usage.completionTokens ?? usage.completion_tokens) || 0;
+  const totalTokens =
+    Number(usage.totalTokens ?? usage.total_tokens) || promptTokens + completionTokens;
+
+  return { promptTokens, completionTokens, totalTokens };
+}
+
 function mergeUsage(total, usage) {
-  if (!usage) return total;
-  if (!total) return { ...usage };
-  const merged = { ...total };
-  for (const key of ["prompt_tokens", "completion_tokens", "total_tokens"]) {
-    if (Number.isFinite(usage[key])) merged[key] = (merged[key] ?? 0) + usage[key];
-  }
-  return merged;
+  const next = normalizeUsage(usage);
+  if (!next) return total;
+  if (!total) return next;
+
+  return {
+    promptTokens: total.promptTokens + next.promptTokens,
+    completionTokens: total.completionTokens + next.completionTokens,
+    totalTokens: total.totalTokens + next.totalTokens
+  };
 }
 
 function isToolUnsupported(error) {
@@ -117,6 +135,13 @@ export async function runStructuredCompletion({
   let lastError = null;
   let toolsDisabled = false;
 
+  // A retired model is a configuration problem, not a transient one. If the
+  // caller allows it, retry once with the configured fallback model and record
+  // the substitution on the run so it is never silent.
+  let activeModel = config.model;
+  let modelFallback = null;
+  let fallbackAttempted = false;
+
   for (let attempt = 1; attempt <= retries + 1; attempt += 1) {
     attempts = attempt;
     const audit = [];
@@ -135,7 +160,7 @@ export async function runStructuredCompletion({
         try {
           response = await provider.completeJson({
             messages,
-            model: config.model,
+            model: activeModel,
             temperature: config.temperature,
             maxOutputTokens: config.maxOutputTokens ?? null,
             timeoutMs: config.timeoutMs ?? 20_000,
@@ -218,7 +243,8 @@ export async function runStructuredCompletion({
           durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
           toolCalls: audit.slice(0, 12),
           toolRounds,
-          toolsDisabled
+          toolsDisabled,
+          modelFallback
         };
       }
 
@@ -228,6 +254,21 @@ export async function runStructuredCompletion({
       });
     } catch (error) {
       lastError = error;
+
+      if (
+        error?.kind === "model-not-found" &&
+        !fallbackAttempted &&
+        config.modelFallback !== false &&
+        config.fallbackModel &&
+        config.fallbackModel !== activeModel
+      ) {
+        modelFallback = { from: activeModel ?? null, to: config.fallbackModel };
+        activeModel = config.fallbackModel;
+        fallbackAttempted = true;
+        attempt -= 1; // a model substitution is not a retry
+        continue;
+      }
+
       const retryable = error?.retryable === true;
 
       if (!retryable || attempt > retries) break;
@@ -318,7 +359,8 @@ export async function runAgent({
       usage: result.usage,
       toolCalls: result.toolCalls ?? [],
       toolRounds: result.toolRounds ?? 0,
-      toolsDisabled: result.toolsDisabled === true
+      toolsDisabled: result.toolsDisabled === true,
+      modelFallback: result.modelFallback ?? null
     });
   } catch (error) {
     return agentRunSchema.parse({

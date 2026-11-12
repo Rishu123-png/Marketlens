@@ -1,7 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { z } from "zod";
-import { getAgentConfig, getModelForAgent, getAllAgentConfigs } from "../../server/ai/config.js";
+import {
+  DEFAULT_MODEL,
+  FALLBACK_MODEL,
+  getAgentConfig,
+  getModelForAgent,
+  getAllAgentConfigs
+} from "../../server/ai/config.js";
 import { aiAgentConfigSchema } from "../../server/ai/config.js";
 import { AICompletionError, runAgent, runStructuredCompletion } from "../../server/ai/runAgent.js";
 import { AIProviderError, groqProvider } from "../../server/ai/providers/groq.js";
@@ -444,4 +450,141 @@ test("usage is aggregated per agent and per model", async () => {
   assert.equal(usage.byAgent.chart.requests, 2);
   assert.equal(usage.byAgent.risk.totalTokens, 150);
   assert.equal(usage.byModel["stub-model"].requests, 3);
+});
+
+// ------------------------------------------------- model retirement (Groq 2026)
+
+test("the default model is a supported replacement, not the retired Llama id", () => {
+  assert.equal(DEFAULT_MODEL, "openai/gpt-oss-120b");
+  assert.notEqual(DEFAULT_MODEL, "llama-3.3-70b-versatile");
+
+  const config = getAgentConfig("chart", { env: {} });
+  assert.equal(config.model, DEFAULT_MODEL);
+  assert.equal(config.fallbackModel, FALLBACK_MODEL);
+  assert.equal(config.modelFallback, true);
+  assert.equal(getAgentConfig("chart", { env: { AI_MODEL_FALLBACK: "off" } }).modelFallback, false);
+});
+
+test("groq reports a retired model as non-retryable model-not-found with an actionable message", async () => {
+  await assert.rejects(
+    () =>
+      groqProvider.completeJson({
+        messages,
+        model: "llama-3.3-70b-versatile",
+        apiKey: "k",
+        fetchImpl: async () =>
+          Response.json(
+            {
+              error: {
+                message:
+                  "The model `llama-3.3-70b-versatile` does not exist or you do not have access to it.",
+                type: "invalid_request_error",
+                code: "model_not_found"
+              }
+            },
+            { status: 404 }
+          )
+      }),
+    (error) => {
+      assert.equal(error.status, 404);
+      assert.equal(error.kind, "model-not-found");
+      assert.equal(error.retryable, false, "a retired model must not be retried as a transient error");
+      assert.match(error.message, /GROQ_MODEL/);
+      assert.match(error.message, /openai\/gpt-oss-120b/);
+      return true;
+    }
+  );
+});
+
+test("gpt-oss requests ask for low reasoning effort; other models do not", async () => {
+  const bodies = [];
+  const fetchImpl = async (_url, options) => {
+    bodies.push(JSON.parse(options.body));
+    return Response.json({
+      model: "served",
+      choices: [{ message: { content: '{"answer":"ok"}' } }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+    });
+  };
+
+  await groqProvider.completeJson({ messages, model: "openai/gpt-oss-120b", apiKey: "k", fetchImpl });
+  await groqProvider.completeJson({ messages, model: "qwen/qwen3.8-27b", apiKey: "k", fetchImpl });
+
+  assert.equal(bodies[0].reasoning_effort, "low");
+  assert.equal("reasoning_effort" in bodies[1], false);
+});
+
+test("a retired model falls back once and records the substitution", async () => {
+  const models = [];
+  const provider = {
+    id: "stub",
+    isConfigured: () => true,
+    async completeJson(request) {
+      models.push(request.model);
+      if (models.length === 1) {
+        throw new AIProviderError("model gone", {
+          status: 404,
+          retryable: false,
+          kind: "model-not-found"
+        });
+      }
+      return {
+        content: '{"answer":"ok"}',
+        usage: { promptTokens: 5, completionTokens: 2, totalTokens: 7 },
+        model: request.model,
+        provider: "stub"
+      };
+    }
+  };
+
+  const result = await runStructuredCompletion({
+    messages,
+    schema,
+    config: {
+      ...baseConfig,
+      model: "llama-3.3-70b-versatile",
+      fallbackModel: "openai/gpt-oss-120b",
+      modelFallback: true
+    },
+    provider
+  });
+
+  assert.deepEqual(models, ["llama-3.3-70b-versatile", "openai/gpt-oss-120b"]);
+  assert.deepEqual(result.modelFallback, {
+    from: "llama-3.3-70b-versatile",
+    to: "openai/gpt-oss-120b"
+  });
+  assert.equal(result.attempts, 1, "the substitution is not counted as a retry");
+  assert.equal(result.model, "openai/gpt-oss-120b");
+});
+
+test("model fallback can be disabled and fails without a second call", async () => {
+  let calls = 0;
+  const provider = {
+    id: "stub",
+    isConfigured: () => true,
+    async completeJson() {
+      calls += 1;
+      throw new AIProviderError("model gone", { status: 404, retryable: false, kind: "model-not-found" });
+    }
+  };
+
+  await assert.rejects(
+    () =>
+      runStructuredCompletion({
+        messages,
+        schema,
+        config: {
+          ...baseConfig,
+          model: "llama-3.3-70b-versatile",
+          fallbackModel: "openai/gpt-oss-120b",
+          modelFallback: false,
+          retries: 1
+        },
+        provider
+      }),
+    /model gone/
+  );
+
+  assert.equal(calls, 1);
 });
