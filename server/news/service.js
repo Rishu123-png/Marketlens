@@ -135,8 +135,14 @@ export async function gatherEvidence(options = {}) {
     "Deduplication is headline-based; independent confirmation of the same event is not implied"
   ];
 
-  if (!sources.some((source) => source.status === "ok" || source.status === "unverified")) {
-    limitations.push("No news or filing provider is configured; the News agent will run without evidence.");
+  const returnedEvidence = sources.some((source) => source.status === "ok" || source.status === "unverified");
+  if (!returnedEvidence) {
+    const attempted = sources.some((source) => source.status === "failed");
+    limitations.push(
+      attempted
+        ? "News and filing sources are configured but none returned evidence on this attempt; coverage is degraded."
+        : "No news or filing provider is configured; the News agent will run without evidence."
+    );
   }
 
   const data = {

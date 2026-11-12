@@ -5,6 +5,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { AGENT_IDS } from "../../shared/schemas/agent.js";
 import { AI_PROVIDER_IDS, getAgentConfig } from "../../server/ai/config.js";
 import { toolAgentIds, toolsForAgent } from "../../server/ai/toolPolicy.js";
+import { buildEvidenceEnvelope } from "../../server/agents/envelope.js";
 
 test("Groq is the only AI provider id and every agent resolves to it", () => {
   assert.deepEqual([...AI_PROVIDER_IDS], ["groq"]);
@@ -49,4 +50,28 @@ test("tool policy defaults to three analytical agents and no coordinator", () =>
   const envelope = { marketContext: { recentCandles: [] }, technical: null, evidence: { items: [] } };
   const coordinator = toolsForAgent("coordinator", envelope, {});
   assert.equal(coordinator.tools, null);
+});
+
+test("coverage summary travels inside the agent evidence envelope", () => {
+  const coverage = {
+    version: "1.0.0",
+    degraded: true,
+    capabilities: { candles: { status: "unavailable", delayed: false, liveVerification: "not-applicable" } },
+    limitations: ["Historical candles unavailable: No usable source."]
+  };
+
+  const envelope = buildEvidenceEnvelope({
+    instrument: { id: "IN-EQ-RELIANCE", symbol: "RELIANCE", exchange: "NSE" },
+    depth: "quick",
+    quality: { dataWarnings: [], coverage }
+  });
+
+  assert.deepEqual(envelope.quality.coverage, coverage);
+  assert.equal(envelope.quality.dataWarnings.length, 0);
+
+  const withoutCoverage = buildEvidenceEnvelope({
+    instrument: { id: "IN-EQ-RELIANCE", symbol: "RELIANCE", exchange: "NSE" },
+    depth: "quick"
+  });
+  assert.equal(withoutCoverage.quality.coverage, null);
 });

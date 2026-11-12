@@ -37,6 +37,24 @@ credentials are required to run the suite.
   commit (several already exist: candle `evidenceId` mapping, missing gate result,
   empty-symbol instrument synthesis).
 
+## Evidence and tool-calling suites
+
+- `tests/unit/tools.test.js` — deterministic tool reads, argument validation,
+  budget exhaustion, the Groq tool loop (stub provider), tool rejection fallback,
+  maximum rounds and per-agent tool policy.
+- `tests/unit/evidence-sources.test.js` — TTL cache, feed defaults/status, source
+  registry states (including NSE `prohibited`), coverage classification and
+  runtime downgrade, SEC EDGAR fixtures (UA gate, normalisation, caching),
+  AMFI parsing and multi-URL fallback, data.gov.in opt-in behaviour, and the
+  honest "configured but failing" limitation.
+- `tests/unit/ai-backbone.test.js` — Groq is the only provider id and every agent
+  resolves to it; no second provider module exists; evidence adapters never
+  import the AI layer; coverage travels in the envelope.
+- `test/evidence-endpoints.test.js` — `/api/coverage`, `/api/nav`,
+  `/api/official-data` and the Groq/coverage fields of `/api/provider-status`.
+
+All of these run without credentials or network access.
+
 ## Not covered
 
 - Live provider behaviour, Groq latency/rate limits, QStash delivery and PostgreSQL

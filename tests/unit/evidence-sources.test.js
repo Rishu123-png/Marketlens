@@ -248,6 +248,36 @@ function secFetchStub(requests = []) {
   };
 }
 
+test("gatherEvidence states configured-but-failing sources instead of pretending none exist", async () => {
+  const { gatherEvidence, clearEvidenceCache } = await import("../../server/news/service.js");
+  clearEvidenceCache();
+
+  const data = await gatherEvidence({
+    symbol: "RELIANCE",
+    exchange: "NSE",
+    cache: false,
+    filingProviders: [],
+    providers: [
+      {
+        id: "stub-wire",
+        isConfigured: () => true,
+        async search() {
+          throw new Error("wire is down");
+        }
+      }
+    ]
+  });
+
+  assert.equal(data.items.length, 0);
+  assert.equal(data.sources[0].status, "failed");
+  assert.match(data.sources[0].reason, /wire is down/);
+  assert.ok(
+    data.limitations.some((line) => /configured but none returned evidence/.test(line)),
+    "a failing configured source must not be reported as unconfigured"
+  );
+  clearEvidenceCache();
+});
+
 test("SEC EDGAR adapter fails closed without a contact User-Agent", async () => {
   const client = createSecClient({ userAgent: undefined, fetchImpl: async () => jsonResponse({}) });
   assert.equal(client.isConfigured(), false);
