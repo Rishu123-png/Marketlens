@@ -42,7 +42,7 @@ edit the `Decision` column and I will adjust the plan.
 | --- | --- | --- | --- |
 | O1 | Durable research execution | **Queue + independently deployed worker (QStash candidate)**; never multi-agent work inside a Vercel request | Job lifecycle is queue-ready; worker/queue land in M5. See [`execution-deployment.md`](./execution-deployment.md) |
 | O2 | News sources | **Financial news + official company sources, NSE/BSE announcements, SEBI, RBI, government filings**; sentiment may use permitted public commentary | M4 ingestion must prefer primary sources and record provenance per item |
-| O3 | Charting | **Lightweight Charts**, rendering kept separate from calculations | Chart Lab consumes `/api/history` + `/api/indicators`; no pattern logic in the browser |
+| O3 | Charting | **Lightweight Charts**, rendering kept separate from calculations | Chart Lab consumes `/api/history` (candles) then `/api/analysis` (indicators/structure); no pattern logic in the browser |
 | O4 | API versioning | **No `/v1` prefix** | Existing paths stay stable; version only when an external consumer exists |
 | O5 | Authentication | **Deferred**, architecture stays auth-ready | Research/job endpoints must key on a user identity hook from the start, even while anonymous |
 | O6 | Shared storage | **Upstash** for distributed rate limits; **PostgreSQL** for durable data at M8 | Rate limiter already fails over to Upstash; no DB in M1 |

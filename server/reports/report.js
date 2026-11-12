@@ -39,12 +39,20 @@ function agentStatusMap(agentRuns) {
   return Object.fromEntries(Object.entries(agentRuns).map(([agent, run]) => [agent, run.status]));
 }
 
-function instrumentSection(instrument) {
+function instrumentSection(instrument, envelope) {
   if (!instrument) return "Instrument identity could not be resolved.";
+  const quote = envelope?.marketContext?.quote;
+  const freshness = quote?.freshness;
+  const quoteLine = quote
+    ? `Verified quote: ${quote.price} ${quote.currency ?? instrument.currency ?? ""} via ${quote.provider}` +
+      ` · provider timestamp ${quote.providerTimestamp ?? "unavailable"} · retrieved ${quote.retrievedAt}` +
+      ` · freshness ${typeof freshness === "string" ? freshness : "unknown"}`
+    : "Verified quote: none. No provider returned a quote whose identity matched this instrument.";
   return [
     `${instrument.name ?? instrument.symbol} (${instrument.symbol})`,
     `Exchange: ${instrument.exchange ?? "unknown"} · Country: ${instrument.country ?? "unknown"} · Currency: ${instrument.currency ?? "unknown"}`,
     `Asset type: ${instrument.assetType ?? "unknown"} · Sector: ${instrument.sector ?? "unclassified"}`,
+    quoteLine,
     `Instrument id: ${instrument.id}`
   ].join("\n");
 }
@@ -102,7 +110,7 @@ export function buildResearchReport(input) {
     ? coordinator.sections.summary.body
     : "The coordinator did not complete, so no synthesised summary is available. Individual module findings below are unchanged and the publication verdict is determined by the deterministic gate.";
 
-  sections.instrument = instrumentSection(instrument);
+  sections.instrument = instrumentSection(instrument, envelope);
 
   for (const [section, source] of Object.entries(SECTION_SOURCE)) {
     if (source === null) {

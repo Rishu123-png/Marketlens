@@ -6,18 +6,36 @@ agents interpret that evidence — **Groq is the single AI provider for all six
 agents**, report reasoning, classification and evidence interpretation; a
 deterministic publication gate decides whether a report may be published. **No order execution, no price targets, no predictions.**
 
-Three screens ship today:
+Nine workspaces ship today:
 
-- **Overview** — curated NSE list, provider search, watchlist, verified quote modal
-  and single-shot AI commentary.
-- **Chart Lab** — candlesticks and volume (Lightweight Charts) plus server-computed
-  indicators, support/resistance zones, candlestick and chart patterns.
+- **Overview** — index cards, verified breadth, sector performance, movers, heatmap,
+  watchlist and a paginated instrument master with per-instrument provider
+  availability.
+- **Chart Lab** — candlesticks/line, volume, 1m–1M timeframes (including aggregated
+  4H), server-computed SMA/EMA/Bollinger/VWAP overlays, indicator readings and
+  geometric chart patterns.
+- **Structure** — deterministic BOS, CHoCH, order-block hypotheses, fair value gaps,
+  equal highs/lows and liquidity-sweep hypotheses, each with its rule,
+  invalidation and confidence.
+- **Screener** — quote filters plus bounded technical filters (SMA/RSI), saved
+  screens in this browser. Market-cap filters are refused rather than approximated.
+- **News** — company news, filings and macro evidence with publishers, links,
+  timestamps, deduplication and source status.
 - **Research** — durable research jobs run by a background worker: gate verdict,
-  per-agent status, ten-section report, evidence trail and recent jobs.
+  per-agent model/usage metadata, report, evidence trail and owned job history.
+- **Watchlists & Alerts** — multiple browser-persisted lists and alert rules
+  (price, %, volume, news keyword) with trigger history.
+- **Virtual Portfolio** — hypothetical holdings, virtual trades, mark-to-market
+  P&L, sector exposure and concentration. No broker, no order execution.
+- **Diagnostics** — an internal Data & AI workspace with two deliberately separate
+  panels: Groq per-agent credentials/models/runs/rate limits/fallbacks, and
+  market-data provider health, coverage, request attempts, cache and freshness.
+  It never displays credential values.
 
-Chart Lab and Research both show an **evidence coverage strip** (`/api/coverage`):
-quotes, candles, news, filings, NAV and macro are each marked available, partial,
-degraded or unavailable, with the reason. Missing data is never silently omitted.
+Every market screen states its coverage. The instrument matrix
+(`/api/instruments?coverage=1`) distinguishes catalogued, provider-mapped,
+quote-capable and actually verified; free provider tiers are labelled delayed, not
+real-time. Missing data is never silently omitted or filled.
 
 ## Quick start
 
@@ -60,12 +78,15 @@ Same-origin `/api/*`, rate limited, no `/v1` prefix. Full reference:
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /api/health`, `/api/provider-status` | Configuration, capabilities and verification levels |
-| `GET /api/instruments`, `/api/universe`, `/api/search` | Catalog, curated list, provider search |
-| `GET /api/market`, `/api/top-stocks` | Verified quotes (single and batch) |
-| `GET /api/history`, `/api/indicators`, `/api/analysis` | Candles, deterministic indicators, chart structure |
+| `GET /api/health`, `/api/provider-status` | Configuration, capabilities and verification levels, including per-agent Groq credential presence |
+| `GET /api/diagnostics` | Data & AI diagnostics: separate Groq credential/run panel and market-data provider/request panel (no secrets) |
+| `GET /api/instruments`, `/api/universe`, `/api/search` | Merged instrument master (160 curated + provider directory), availability, provider search |
+| `GET /api/market`, `/api/quotes`, `/api/top-stocks` | Verified quotes (single, batch, legacy ranking) |
+| `GET /api/market-overview` | Indices, verified breadth, sectors, movers, heatmap, freshness |
+| `GET /api/history`, `/api/indicators`, `/api/analysis` | Candles (incl. 4H), deterministic indicators/series, chart structure |
+| `GET /api/structure`, `/api/screener` | Market-structure hypotheses; quote + technical screener |
 | `GET /api/news` | News + official filing evidence (sanitized, deduplicated) |
-| `GET /api/coverage` | Evidence coverage per capability, with limitations (also shown in the UI) |
+| `GET /api/coverage` | Evidence coverage per capability plus the instrument coverage matrix |
 | `GET /api/nav` | Official AMFI end-of-day NAV (`isin` or `schemeCode`) |
 | `GET /api/official-data` | Optional data.gov.in open datasets (requires `DATA_GOV_IN_API_KEY`) |
 | `POST /api/report` | Single-shot AI commentary on a verified quote |
@@ -93,13 +114,15 @@ Everything is server-side; the browser never holds a provider key.
 | Group | Variables |
 | --- | --- |
 | Market data | `FMP_API_KEY`, `TWELVE_DATA_API_KEY`, `ALPHA_VANTAGE_API_KEY`, `PRIMARY_MARKET_PROVIDER`, `SECONDARY_MARKET_PROVIDER` |
-| AI | `GROQ_API_KEY`, `GROQ_MODEL` (default `openai/gpt-oss-120b`), `AI_MODEL_FALLBACK`, `AI_MODEL_*`, `AI_TIMEOUT_MS`, `AI_RETRIES`, `AI_BACKOFF_MS`, `AI_TOOL_CALLING`, `AI_TOOL_AGENTS` |
+| AI | `GROQ_API_KEY` (shared fallback), `GROQ_API_KEY_CHART`, `GROQ_API_KEY_TECHNICAL`, `GROQ_API_KEY_NEWS`, `GROQ_API_KEY_SENTIMENT`, `GROQ_API_KEY_RISK`, `GROQ_API_KEY_COORDINATOR`, `GROQ_AGENT_KEYS_REQUIRED`, `GROQ_SHARED_KEY_FALLBACK`, `GROQ_MODEL` (default `openai/gpt-oss-120b`), `AI_MODEL_FALLBACK`, `AI_MODEL_*`, `AI_TIMEOUT_MS`, `AI_RETRIES`, `AI_BACKOFF_MS`, `AI_TOOL_CALLING`, `AI_TOOL_AGENTS` |
 | Official evidence | `NEWS_RSS_ENABLED`, `NEWS_RSS_FEEDS`, `BSE_ANNOUNCEMENTS_RSS`, `NSE_ANNOUNCEMENTS_RSS`, `SEC_USER_AGENT`, `DATA_GOV_IN_API_KEY` |
 | News | `NEWS_API_KEY`, `GNEWS_API_KEY`, `NEWS_PROVIDER_ORDER`, `NEWS_RSS_FEEDS` |
 | Filings (unverified) | `NSE_FILINGS_COOKIE`, `BSE_FILINGS_ENABLED` |
-| Queue | `QSTASH_TOKEN`, `WORKER_URL`, `WORKER_SECRET`, `WORKER_POLL_MS` |
+| Queue | `QSTASH_TOKEN`, `WORKER_URL`, `WORKER_SECRET`, `QSTASH_CURRENT_SIGNING_KEY`, `QSTASH_NEXT_SIGNING_KEY`, `WORKER_POLL_MS` |
 | Storage | `DATABASE_URL`, `DATABASE_SSL`, `DATABASE_POOL_MAX`, `OBJECT_STORE_ROOT`, `S3_*` |
 | Rate limits | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` |
+
+Per-agent Groq keys are optional. When a `GROQ_API_KEY_<AGENT>` value is present it is used for that agent; otherwise `GROQ_API_KEY` is used unless `GROQ_AGENT_KEYS_REQUIRED=true`. The credential's variable name and mode appear in `/api/provider-status` and `/api/diagnostics`, never its value. Separate keys isolate credentials but do **not** multiply the organisation/project rate limit.
 
 See [`.env.example`](.env.example) for the annotated list.
 
@@ -116,6 +139,7 @@ stored evidence keeps the excerpt and retrieval time observed when the analysis 
 
 ## Documentation
 
+- [`docs/architecture/production-audit-2026-11.md`](docs/architecture/production-audit-2026-11.md) — production audit: TCS wrong-listing bug, 40-instrument ceiling, low quote coverage and feed-status honesty
 - [`docs/architecture/README.md`](docs/architecture/README.md) — system overview and layout
 - [`docs/architecture/api.md`](docs/architecture/api.md) — endpoints and error shapes
 - [`docs/architecture/agents.md`](docs/architecture/agents.md) — agent contracts

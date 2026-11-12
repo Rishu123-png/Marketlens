@@ -1,3 +1,5 @@
+import { hasAnyGroqCredential } from "../server/ai/credentials.js";
+
 export default function handler(
   _req,
   res
@@ -22,9 +24,7 @@ export default function handler(
     },
 
     groq: {
-      configured: Boolean(
-        process.env.GROQ_API_KEY
-      )
+      configured: hasAnyGroqCredential()
     },
 
     news: {

@@ -43,6 +43,12 @@ export const quoteSchema = z
     source: z.string().min(1).max(80),
     provider: z.string().min(1).max(40),
 
+    // Provider-reported identity evidence. Optional because not every provider
+    // supplies it; when present the gateway checks it against the instrument.
+    providerSymbol: z.string().min(1).max(60).nullable().optional(),
+    providerExchange: z.string().min(1).max(60).nullable().optional(),
+    providerCurrency: z.string().min(1).max(8).nullable().optional(),
+
     updatedAt: isoTimestampSchema,
     retrievedAt: isoTimestampSchema.optional(),
     providerTimestamp: isoTimestampSchema.nullable().optional(),

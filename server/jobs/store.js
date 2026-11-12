@@ -33,8 +33,17 @@ export class InMemoryJobStore {
   constructor({ now = () => new Date().toISOString() } = {}) {
     this.now = now;
     this.jobs = new Map();
+    this.owners = new Map();
     this.results = new Map();
     this.agentRuns = new Map();
+  }
+
+  setOwner(jobId, ownerHash) {
+    if (ownerHash) this.owners.set(jobId, ownerHash);
+  }
+
+  getOwnerHash(jobId) {
+    return this.owners.get(jobId) ?? null;
   }
 
   create({ instrumentId, depth, timeframe, historyPeriod, newsLookbackDays, jobId } = {}) {
@@ -63,9 +72,13 @@ export class InMemoryJobStore {
     return this.jobs.has(jobId);
   }
 
-  list({ limit = 20, status = null } = {}) {
+  list({ limit = 20, status = null, ownerHash = null } = {}) {
     return [...this.jobs.values()]
       .filter((job) => (status ? job.status === status : true))
+      .filter((job) => {
+        const owned = this.owners.get(job.jobId) ?? null;
+        return ownerHash ? owned === ownerHash : owned === null;
+      })
       .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
       .slice(0, Math.min(Math.max(limit, 1), 100));
   }
@@ -123,6 +136,7 @@ export class InMemoryJobStore {
   }
 
   reset() {
+    this.owners.clear();
     this.jobs.clear();
     this.results.clear();
     this.agentRuns.clear();

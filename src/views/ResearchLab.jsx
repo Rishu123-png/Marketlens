@@ -266,6 +266,16 @@ export default function ResearchLab() {
                 <li key={agent}>
                   <span className="agent-name">{agent}</span>
                   <span className={`agent-chip ${String(status).toLowerCase()}`}>{status}</span>
+                  {run?.model && <span className="agent-model" title={`${run.provider || "provider"} · attempts ${run.attempts ?? "—"}`}>{run.model}</span>}
+                  {run?.usage && (
+                    <span className="agent-metric">
+                      {run.usage.totalTokens ?? 0} tok · {run.durationMs ?? 0} ms
+                    </span>
+                  )}
+                  {run?.modelFallback && (
+                    <span className="chip warning" title={`${run.modelFallback.from} → ${run.modelFallback.to}`}>fallback</span>
+                  )}
+                  {run?.toolCalls?.length > 0 && <span className="agent-metric">{run.toolCalls.length} tool calls</span>}
                   {run?.error && <small title={run.error}>{run.error.slice(0, 120)}</small>}
                 </li>
               );

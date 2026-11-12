@@ -8,6 +8,21 @@
 
 const DEFAULT_TIMEOUT_MS = 8_000;
 
+/** Provider bodies can echo request parameters; keep credential values out of errors. */
+function redactUrlSecrets(text, url) {
+  let safe = String(text ?? "");
+  try {
+    const parsed = new URL(url);
+    for (const [name, value] of parsed.searchParams) {
+      if (!value) continue;
+      if (/key|token|secret|auth/i.test(name)) safe = safe.split(value).join("[redacted]");
+    }
+  } catch {
+    // A malformed URL is not itself a reason to fail differently.
+  }
+  return safe.replace(/(apikey|api_key|token|secret|key)=([^&\s"']+)/gi, "$1=[redacted]");
+}
+
 export async function fetchJson(url, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -20,17 +35,26 @@ export async function fetchJson(url, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
     try {
       data = JSON.parse(text);
     } catch {
-      throw new Error(text.slice(0, 250) || `Provider HTTP ${response.status}`);
+      throw new Error(redactUrlSecrets(text, url).slice(0, 250) || `Provider HTTP ${response.status}`);
     }
 
     if (!response.ok) {
-      throw new Error(
-        data?.["Error Message"] ||
-          data?.message ||
-          data?.error ||
-          data?.Information ||
-          `Provider HTTP ${response.status}`
+      const error = new Error(
+        redactUrlSecrets(
+          data?.["Error Message"] ||
+            data?.message ||
+            data?.error ||
+            data?.Information ||
+            `Provider HTTP ${response.status}`,
+          url
+        )
       );
+      // Status is operational metadata, not a secret. Callers embed only the
+      // message and status in API `details[]` and diagnostics.
+      error.status = response.status;
+      const retryAfter = Number(response.headers?.get?.("retry-after"));
+      if (Number.isFinite(retryAfter) && retryAfter >= 0) error.retryAfterSeconds = retryAfter;
+      throw error;
     }
 
     return data;

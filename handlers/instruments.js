@@ -1,33 +1,34 @@
-// Instrument discovery: catalog identity, filtering and local search.
-// Provider-backed symbol lookup stays in /api/search; this endpoint is the
-// registry that everything else resolves against.
+// Instrument discovery: the merged master (bundled catalogue + provider
+// directory), local search, provider availability and pagination.
+//
+// A listed instrument is not a promise of a quote: `availability.quoteEnabled`
+// is derived from configured providers that actually map the instrument, and
+// `quoteVerifiedRecently` only from observed successful calls.
+import { INSTRUMENTS, getInstrument } from "../shared/instruments/catalog.js";
 import {
-  INSTRUMENTS,
-  getInstrument,
-  listInstruments,
-  searchInstruments
-} from "../shared/instruments/catalog.js";
+  ASSET_TYPES,
+  EXCHANGES,
+  buildInstrumentMatrix,
+  publicInstrument,
+  searchInstrumentMaster
+} from "../server/instruments/service.js";
+import { getDirectory } from "../server/instruments/directory.js";
 import { rateLimit } from "../lib/server/rateLimit.js";
 
-const ASSET_TYPES = ["equity", "index", "etf"];
-const MAX_LIMIT = 200;
-
-function toPublic(instrument) {
-  return {
-    id: instrument.id,
-    symbol: instrument.symbol,
-    name: instrument.name,
-    exchange: instrument.exchange,
-    country: instrument.country,
-    currency: instrument.currency,
-    assetType: instrument.assetType,
-    sector: instrument.sector
-  };
-}
+const MAX_LIMIT = 500;
 
 function readInteger(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) ? Math.trunc(number) : fallback;
+}
+
+function readList(value) {
+  if (!value) return [];
+  return String(value)
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .slice(0, 12);
 }
 
 export default async function handler(req, res) {
@@ -51,7 +52,11 @@ export default async function handler(req, res) {
     if (!instrument) {
       return res.status(404).json({ error: "Unknown instrument." });
     }
-    return res.status(200).json({ instrument: toPublic(instrument) });
+    return res.status(200).json({ instrument: publicInstrument(instrument) });
+  }
+
+  if (String(req.query?.coverage || "") === "1") {
+    return res.status(200).json({ ok: true, matrix: buildInstrumentMatrix() });
   }
 
   const query = String(req.query?.q || "").trim();
@@ -59,35 +64,56 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Search query is too long." });
   }
 
-  const assetType = String(req.query?.assetType || "").trim().toLowerCase();
-  if (assetType && !ASSET_TYPES.includes(assetType)) {
+  const assetTypes = readList(req.query?.assetType || req.query?.assetTypes).map((value) => value.toLowerCase());
+  const unsupported = assetTypes.filter((value) => !ASSET_TYPES.includes(value));
+  if (unsupported.length) {
     return res.status(400).json({
-      error: "Unsupported asset type.",
+      error: `Unsupported asset type: ${unsupported.join(", ")}.`,
       supported: ASSET_TYPES
     });
   }
 
+  const exchanges = readList(req.query?.exchange || req.query?.exchanges).map((value) => value.toUpperCase());
+  const unsupportedExchanges = exchanges.filter((value) => !EXCHANGES.includes(value));
+  if (unsupportedExchanges.length) {
+    return res.status(400).json({
+      error: `Unsupported exchange: ${unsupportedExchanges.join(", ")}.`,
+      supported: EXCHANGES
+    });
+  }
+
   const filters = {
-    country: String(req.query?.country || "").trim(),
-    exchange: String(req.query?.exchange || "").trim(),
-    assetType,
-    sector: String(req.query?.sector || "").trim()
+    country: readList(req.query?.country),
+    exchange: exchanges,
+    assetType: assetTypes,
+    sector: readList(req.query?.sector)
   };
 
   const limit = Math.min(MAX_LIMIT, Math.max(1, readInteger(req.query?.limit, 50)));
   const offset = Math.max(0, readInteger(req.query?.offset, 0));
+  const includeDirectory = req.query?.directory !== "0";
+  const refreshDirectory = req.query?.refreshDirectory === "1";
 
-  const matched = query ? searchInstruments(query, filters) : listInstruments(filters);
-  const page = matched.slice(offset, offset + limit);
+  try {
+    if (refreshDirectory) await getDirectory({ refresh: true });
 
-  return res.status(200).json({
-    query: query || null,
-    filters,
-    total: matched.length,
-    catalogSize: INSTRUMENTS.length,
-    offset,
-    limit,
-    count: page.length,
-    instruments: page.map(toPublic)
-  });
+    const payload = await searchInstrumentMaster(query, filters, {
+      limit,
+      offset,
+      includeDirectory
+    });
+
+    return res.status(200).json({
+      ...payload,
+      page: offset / limit + 1,
+      catalogSize: INSTRUMENTS.length,
+      assetTypes: ASSET_TYPES,
+      exchanges: EXCHANGES,
+      note: "Catalogue presence does not imply a live quote. Check availability.quoteEnabled and quoteVerifiedRecently."
+    });
+  } catch (error) {
+    return res.status(503).json({
+      error: error instanceof Error ? error.message : "Instrument search is unavailable."
+    });
+  }
 }

@@ -496,6 +496,12 @@ export function analyzeChart(candles, { minCandles = MIN_CANDLES } = {}) {
     lastClose: lastPrice(clean),
     trend,
     supportResistance,
+    // Recent pivot geometry is exposed so the chart can draw the same lines the
+    // engine measured instead of recomputing them in the browser.
+    pivots: {
+      highs: pivots.highs.slice(-12),
+      lows: pivots.lows.slice(-12)
+    },
     candlestickPatterns: detectCandlestickPatterns(clean),
     chartPatterns,
     limitations: [

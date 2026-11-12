@@ -9,9 +9,13 @@
 
 import { instrumentFromSymbol } from "../../shared/instruments/catalog.js";
 import { quoteSchema } from "../../shared/schemas/quote.js";
+import { validateQuoteIdentity } from "./identity.js";
+import { dataFreshness, recordMarketRequest, recordQuoteObservation } from "./observations.js";
 import { getProviderOrder, getProviders } from "./providers/index.js";
 
 const DEFAULT_CACHE_TTL_MS = 60_000;
+const DEFAULT_BUDGET_MS = 25_000;
+const PER_PROVIDER_TIMEOUT_MS = 10_000;
 const MAX_CACHE_ENTRIES = 500;
 const SYMBOL_PATTERN = /^\^?[A-Z0-9._:&-]{1,40}$/;
 
@@ -59,29 +63,81 @@ export async function getVerifiedQuote(target, options = {}) {
   if (options.cache !== false) {
     const hit = cache.get(cacheKey);
     if (hit && Date.now() - hit.createdAt < ttl) {
+      recordMarketRequest({
+        kind: "quote",
+        instrumentId: instrument.id,
+        symbol: instrument.symbol,
+        exchange: instrument.exchange,
+        provider: hit.data.provider,
+        cacheHit: true,
+        returnedCount: 1,
+        durationMs: 0,
+        dataTimestamp: hit.data.providerTimestamp ?? null,
+        freshness: hit.data.freshness ?? "unknown"
+      });
       return { ...hit.data, cached: true };
     }
   }
 
   const providers = options.providers || getProviders(getProviderOrder(options.primary));
   const errors = [];
+  const budgetMs = Number(options.budgetMs) > 0 ? Number(options.budgetMs) : DEFAULT_BUDGET_MS;
+  const startedAt = Date.now();
 
   for (let index = 0; index < providers.length; index += 1) {
     const provider = providers[index];
-
-    if (!provider.supports(instrument)) {
-      errors.push({
-        provider: provider.id,
-        message: "Instrument is not mapped for this provider."
-      });
+    const requestContext = {
+      kind: "quote",
+      instrumentId: instrument.id,
+      symbol: instrument.symbol,
+      exchange: instrument.exchange,
+      provider: provider.id
+    };
+    const remaining = budgetMs - (Date.now() - startedAt);
+    if (remaining <= 0) {
+      const message = "Quote budget exhausted before this provider was tried.";
+      errors.push({ provider: provider.id, message });
+      recordMarketRequest({ ...requestContext, attempted: false, error: new Error(message) });
       continue;
     }
 
+    if (!provider.supports(instrument)) {
+      const message = "Instrument is not mapped for this provider.";
+      errors.push({ provider: provider.id, message });
+      recordMarketRequest({ ...requestContext, attempted: false, error: new Error(message) });
+      continue;
+    }
+    if (typeof provider.isConfigured === "function" && !provider.isConfigured()) {
+      const message = "API key is not configured.";
+      errors.push({ provider: provider.id, message });
+      recordMarketRequest({ ...requestContext, attempted: false, error: new Error(message) });
+      continue;
+    }
+
+    const attemptStartedAt = Date.now();
+    let quote;
+    let timer = null;
     try {
-      const quote = await provider.fetchQuote(instrument);
+      // A single slow provider must not consume the whole serverless request.
+      const timeoutMs = Math.min(remaining, PER_PROVIDER_TIMEOUT_MS);
+      const timeoutPromise = new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${provider.id} exceeded ${timeoutMs} ms.`)),
+          timeoutMs
+        );
+        timer.unref?.();
+      });
+      quote = await Promise.race([provider.fetchQuote(instrument), timeoutPromise]);
 
       if (quote.quoteVerified !== true || quote.price === null) {
         throw new Error(`${provider.id} returned no verified price.`);
+      }
+
+      // Identity first: a structurally valid quote for the wrong listing is
+      // worse than no quote, because it looks trustworthy.
+      const identity = validateQuoteIdentity(instrument, quote);
+      if (!identity.ok) {
+        throw new Error(`${provider.id} quote failed identity validation: ${identity.reason}`);
       }
 
       // Enforce the quote contract at the provider boundary. A drifted adapter
@@ -100,22 +156,56 @@ export async function getVerifiedQuote(target, options = {}) {
         source: quote.source || provider.label,
         cached: false,
         fallbackUsed: index > 0,
-        providerErrors: errors
+        providerErrors: errors,
+        identity: identity.checks
       };
 
       remember(cacheKey, data);
+      recordQuoteObservation({
+        instrumentId: instrument.id,
+        provider: data.provider,
+        ok: true,
+        quote: data
+      });
+      recordMarketRequest({
+        ...requestContext,
+        attempted: true,
+        httpStatus: 200,
+        returnedCount: 1,
+        durationMs: Date.now() - attemptStartedAt,
+        dataTimestamp: data.providerTimestamp ?? null,
+        freshness: dataFreshness(data.providerTimestamp)?.classification ?? "unknown"
+      });
       return data;
     } catch (error) {
       errors.push({
         provider: provider.id,
-        message: error instanceof Error ? error.message : "Unknown provider error"
+        message: error instanceof Error ? error.message : "Unknown provider error",
+        status: Number.isFinite(Number(error?.status)) ? Number(error.status) : null
       });
+      recordMarketRequest({
+        ...requestContext,
+        attempted: true,
+        httpStatus: error?.status ?? null,
+        error: error instanceof Error ? error : new Error("Unknown provider error"),
+        durationMs: Date.now() - attemptStartedAt
+      });
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 
   const error = new Error("No configured provider could return a verified quote for this stock.");
   error.statusCode = 503;
   error.details = errors;
+  error.providerErrors = errors;
+  recordQuoteObservation({
+    instrumentId: instrument.id,
+    provider: errors.at(-1)?.provider ?? null,
+    ok: false,
+    error,
+    quote: null
+  });
   throw error;
 }
 

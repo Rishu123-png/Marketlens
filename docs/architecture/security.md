@@ -5,8 +5,19 @@
 - Provider and AI keys are server-side environment variables only. No `VITE_*`
   variable exists for any provider, and the client bundle is checked by a test
   that fails if zod or server modules leak into it.
+- Groq credentials are resolved per agent by `server/ai/credentials.js` using
+  `GROQ_API_KEY_<AGENT>` and the shared `GROQ_API_KEY` fallback. The provider
+  receives the credential explicitly; it has no implicit env fallback.
+  `GROQ_AGENT_KEYS_REQUIRED=true` forbids shared fallback and fails the agent.
+- Telemetry, diagnostics and status endpoints carry only the environment-variable
+  NAME and `dedicated | shared | none`. They never carry a key, prefix or
+  Authorization header. Separate keys do not multiply organisation/project
+  rate limits; 429s are surfaced and never bypassed by key rotation.
 - Errors surface provider names and status codes, never headers or key values.
-- `WORKER_SECRET` gates `/api/worker`. Without it the endpoint is disabled (503).
+- `/api/worker` accepts either a verified Upstash QStash signature (HS256 JWT,
+  current/next signing keys, expiry + body digest) or `WORKER_SECRET`. With
+  neither configured it is disabled (503). Signature verification fails closed
+  when the runtime cannot supply the raw body.
 - `/api/research` refuses to create jobs when `GROQ_API_KEY` is absent.
 
 ## Untrusted input
@@ -53,33 +64,38 @@ handler (quote 60/min, research creation 10/min, worker deliveries secret-gated)
 
 ## Headers and transport
 
-Production must terminate TLS and set at the edge:
+`vercel.json` now enforces:
 
-- `Content-Security-Policy` allowing only self, with `connect-src 'self'`
-  (the app has no third-party runtime calls; fonts are self-hosted or allow-listed).
+- `Content-Security-Policy` with `default-src 'self'`, `script-src 'self'`,
+  `connect-src 'self'`, allow-listed Google Fonts and `frame-ancestors 'self'`.
 - `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`,
-  `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY`
-  (or CSP `frame-ancestors 'none'`).
-- API responses: `Cache-Control: no-store` for job and report reads.
+  `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: SAMEORIGIN`,
+  `Permissions-Policy` disabling camera/microphone/geolocation/payment.
 
-These are documented configuration, **not enforced by this repository** — Vercel
-`headers` configuration or the edge proxy must set them.
+API responses carry `X-Request-Id`; errors include the same `requestId` so an
+operator can correlate a structured log line with a user report. `LOG_REQUESTS=off`
+disables per-request logging.
 
 ## Authorisation
 
-Authentication is deferred (decision O5). Jobs and reports are therefore
-unauthenticated: do not deploy to a public URL with real research data until auth
-lands. The data model already carries per-job ownership fields in the schema
-design; adding a `user_id` column and a session check is the intended path.
+There are no user accounts. Instead, research-job ownership is a high-entropy
+bearer value generated in the browser (`x-owner-id`); only its SHA-256 hash is
+stored (`research_jobs.owner_hash`, migration 002). A job with an owner hash
+returns `404` to every caller that does not present the matching value; job lists
+are scoped the same way. Jobs created before this change have no owner and remain
+legacy-readable.
+
+This closes anonymous enumeration of jobs and reports. It is **not** account
+authentication: clearing browser storage loses access to those jobs, and a stolen
+owner value is a stolen bearer token. Account login/SSO remains outstanding.
 
 ## Known gaps
 
-- Upstash QStash request-signature verification is not implemented; a shared secret
-  is used instead.
+- No account system, password reset, session revocation or admin roles.
 - No CSRF token is required because state-changing endpoints accept JSON only and
   do not rely on cookies.
-- Audit logging of privileged actions (cancelling another user's job) does not
-  exist yet because there are no user accounts.
+- Audit logging of privileged actions is limited to structured request logs and
+  job transition events; there are no operator accounts to audit yet.
 
 ## AI tool calls
 

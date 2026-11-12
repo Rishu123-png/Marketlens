@@ -3,6 +3,7 @@ import { rateLimit } from "../lib/server/rateLimit.js";
 import { analysisReportSchema } from "../shared/schemas/analysis.js";
 import { runStructuredCompletion } from "../server/ai/runAgent.js";
 import { DEFAULT_MODEL } from "../server/ai/config.js";
+import { getGroqCredential } from "../server/ai/credentials.js";
 
 function numberOrNull(value) {
   if (
@@ -51,13 +52,15 @@ export default async function handler(
     });
   }
 
-  const apiKey =
-    process.env.GROQ_API_KEY;
-
-  if (!apiKey) {
+  let credential;
+  try {
+    // The legacy single-shot report synthesises like the coordinator, so it uses
+    // the coordinator credential (with the shared key only if permitted).
+    credential = getGroqCredential("coordinator");
+  } catch (error) {
     return res.status(503).json({
-      error:
-        "Groq AI service is not configured."
+      error: error.message || "Groq AI service is not configured.",
+      configuration: error.configuration ?? ["GROQ_API_KEY_COORDINATOR", "GROQ_API_KEY"]
     });
   }
 
@@ -181,6 +184,7 @@ Must state that the analysis used provider-backed metrics supplied by MarketLens
         { role: "user", content: prompt }
       ],
       schema: analysisReportSchema,
+      credential,
       config: {
         agent: "legacy-report",
         model: process.env.GROQ_MODEL || DEFAULT_MODEL,

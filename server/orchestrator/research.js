@@ -20,6 +20,7 @@ import { getVerifiedQuote } from "../market-data/gateway.js";
 import { gatherEvidence } from "../news/service.js";
 import { INDICATOR_ENGINE_VERSION, indicatorSnapshot } from "../indicators/index.js";
 import { PATTERN_ENGINE_VERSION, analyzeChart } from "../patterns/index.js";
+import { STRUCTURE_ENGINE_VERSION, analyzeMarketStructure } from "../patterns/structure.js";
 import { AGENT_MODULES, parallelAgentsForDepth } from "../agents/index.js";
 import { ENVELOPE_VERSION, buildEvidenceEnvelope, evidenceIdsOf } from "../agents/envelope.js";
 import { PROMPT_ENVELOPE_VERSION } from "../agents/prompt.js";
@@ -124,13 +125,17 @@ async function collectMarketData({ instrument, options, warnings }) {
 
   let indicators = null;
   let chart = null;
+  let structure = null;
 
   if (candles?.candles?.length) {
     indicators = await withWarning(warnings, "indicators", async () => indicatorSnapshot(candles.candles));
     chart = await withWarning(warnings, "chart", async () => analyzeChart(candles.candles));
+    structure = await withWarning(warnings, "structure", async () =>
+      analyzeMarketStructure(candles.candles, { interval: candles.interval })
+    );
   }
 
-  return { quote, crossQuotes, candles, indicators, chart };
+  return { quote, crossQuotes, candles, indicators, chart, structure };
 }
 
 async function withWarning(warnings, label, fn) {
@@ -262,6 +267,7 @@ export async function runResearch(options = {}) {
     candles: market.candles,
     indicators: market.indicators,
     chart: market.chart,
+    structure: market.structure,
     evidence,
     quality: { dataWarnings: warnings, coverage: coverageSummary(buildCoverage({ now })) },
     generatedAt: now().toISOString()
@@ -390,6 +396,7 @@ export async function runResearch(options = {}) {
       : null,
     indicators: market.indicators,
     chart: market.chart,
+    structure: market.structure,
     evidence: envelope.evidence,
     // Raw evidence items (schema-validated) travel separately so storage can
     // persist them with their fingerprints; the envelope copy is for prompts
@@ -405,6 +412,7 @@ export async function runResearch(options = {}) {
       promptEnvelope: PROMPT_ENVELOPE_VERSION,
       indicators: INDICATOR_ENGINE_VERSION,
       patterns: PATTERN_ENGINE_VERSION,
+      structure: STRUCTURE_ENGINE_VERSION,
       gateRules: GATE_RULES_VERSION,
       reportBuilder: REPORT_BUILDER_VERSION
     },

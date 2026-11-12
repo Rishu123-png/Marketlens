@@ -83,6 +83,16 @@ export function createPgJobStore(client, { now = () => new Date().toISOString() 
   return {
     kind: "postgres",
 
+    async setOwner(jobId, hash) {
+      if (!hash) return;
+      await client.query(`UPDATE research_jobs SET owner_hash = $1 WHERE job_id = $2`, [hash, jobId]);
+    },
+
+    async getOwnerHash(jobId) {
+      const { rows } = await client.query(`SELECT owner_hash FROM research_jobs WHERE job_id = $1`, [jobId]);
+      return rows[0]?.owner_hash ?? null;
+    },
+
     async create({ instrumentId, depth, timeframe, historyPeriod, newsLookbackDays, jobId } = {}) {
       const job = createResearchJob({
         instrumentId,
@@ -126,16 +136,25 @@ export function createPgJobStore(client, { now = () => new Date().toISOString() 
       return rows.length > 0;
     },
 
-    async list({ limit = 20, status = null } = {}) {
-      const { rows } = status
-        ? await client.query(
-            `SELECT * FROM research_jobs WHERE status = $1 ORDER BY created_at DESC LIMIT $2`,
-            [status, Math.min(Math.max(limit, 1), 100)]
-          )
-        : await client.query(`SELECT * FROM research_jobs ORDER BY created_at DESC LIMIT $1`, [
-            Math.min(Math.max(limit, 1), 100)
-          ]);
-
+    async list({ limit = 20, status = null, ownerHash = null } = {}) {
+      const safeLimit = Math.min(Math.max(limit, 1), 100);
+      const clauses = [];
+      const params = [];
+      if (status) {
+        params.push(status);
+        clauses.push(`status = $${params.length}`);
+      }
+      if (ownerHash) {
+        params.push(ownerHash);
+        clauses.push(`owner_hash = $${params.length}`);
+      } else {
+        clauses.push("owner_hash IS NULL");
+      }
+      params.push(safeLimit);
+      const { rows } = await client.query(
+        `SELECT * FROM research_jobs WHERE ${clauses.join(" AND ")} ORDER BY created_at DESC LIMIT $${params.length}`,
+        params
+      );
       return rows.map((row) => mapJob(row));
     },
 

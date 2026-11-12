@@ -10,8 +10,10 @@
  * function bundle always contains exactly the modules it imports.
  */
 
+import { randomUUID } from "node:crypto";
 import analysis from "../../handlers/analysis.js";
 import coverage from "../../handlers/coverage.js";
+import diagnostics from "../../handlers/diagnostics.js";
 import finnhub from "../../handlers/finnhub.js";
 import health from "../../handlers/health.js";
 import history from "../../handlers/history.js";
@@ -20,13 +22,17 @@ import instruments from "../../handlers/instruments.js";
 import jobs from "../../handlers/jobs.js";
 import jobDetail from "../../handlers/jobs/[jobId].js";
 import market from "../../handlers/market.js";
+import marketOverview from "../../handlers/market-overview.js";
 import nav from "../../handlers/nav.js";
 import news from "../../handlers/news.js";
 import officialData from "../../handlers/official-data.js";
 import providerStatus from "../../handlers/provider-status.js";
+import quotes from "../../handlers/quotes.js";
 import report from "../../handlers/report.js";
 import research from "../../handlers/research.js";
+import screener from "../../handlers/screener.js";
 import search from "../../handlers/search.js";
+import structure from "../../handlers/structure.js";
 import topStocks from "../../handlers/top-stocks.js";
 import universe from "../../handlers/universe.js";
 import worker from "../../handlers/worker.js";
@@ -35,6 +41,7 @@ import worker from "../../handlers/worker.js";
 const ROUTE_DEFINITIONS = [
   ["analysis", analysis],
   ["coverage", coverage],
+  ["diagnostics", diagnostics],
   ["finnhub", finnhub],
   ["health", health],
   ["history", history],
@@ -42,13 +49,17 @@ const ROUTE_DEFINITIONS = [
   ["instruments", instruments],
   ["jobs", jobs],
   ["market", market],
+  ["market-overview", marketOverview],
   ["nav", nav],
   ["news", news],
   ["official-data", officialData],
   ["provider-status", providerStatus],
+  ["quotes", quotes],
   ["report", report],
   ["research", research],
+  ["screener", screener],
   ["search", search],
+  ["structure", structure],
   ["top-stocks", topStocks],
   ["universe", universe],
   ["worker", worker],
@@ -193,9 +204,58 @@ export function apiRoutes() {
  * `scripts/api-server.js` (local), so both use identical routing semantics.
  */
 export async function dispatchApiRequest(req, res, { pathname, query = {} } = {}) {
+  const incomingId = String(req?.headers?.["x-request-id"] || "").trim();
+  const requestId = /^[A-Za-z0-9._-]{8,64}$/.test(incomingId) ? incomingId : randomUUID();
+
+  req.requestId = requestId;
+  res.setHeader?.("X-Request-Id", requestId);
+
+  let status = 200;
+  let settled = false;
+  const originalStatus = typeof res.status === "function" ? res.status.bind(res) : null;
+  const originalJson = typeof res.json === "function" ? res.json.bind(res) : null;
+
+  if (originalStatus) {
+    res.status = (code) => {
+      status = Number(code) || status;
+      return originalStatus(code);
+    };
+  }
+  if (originalJson) {
+    res.json = (payload) => {
+      settled = true;
+      if (payload && typeof payload === "object" && !Array.isArray(payload) && status >= 400 && !payload.requestId) {
+        return originalJson({ ...payload, requestId });
+      }
+      return originalJson(payload);
+    };
+  }
+
+  const startedAt = Date.now();
+  const log = () => {
+    if (String(process.env.LOG_REQUESTS ?? "on").toLowerCase() === "off") return;
+    try {
+      console.log(
+        JSON.stringify({
+          level: status >= 500 ? "error" : status >= 400 ? "warn" : "info",
+          event: "api_request",
+          requestId,
+          method: req?.method || "GET",
+          path: pathname,
+          status,
+          settled,
+          durationMs: Date.now() - startedAt
+        })
+      );
+    } catch {
+      /* logging must never break a response */
+    }
+  };
+
   const match = matchApiRoute(pathname);
   if (!match) {
     res.status(404).json({ error: "API route not found." });
+    log();
     return;
   }
 
@@ -203,5 +263,12 @@ export async function dispatchApiRequest(req, res, { pathname, query = {} } = {}
   delete cleaned.__path;
 
   req.query = { ...cleaned, ...match.params };
-  await match.handler(req, res);
+
+  try {
+    await match.handler(req, res);
+  } catch (error) {
+    log();
+    throw error;
+  }
+  log();
 }
