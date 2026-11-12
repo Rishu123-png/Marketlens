@@ -150,6 +150,9 @@ export function transitionJob(job, nextStatus, { at = new Date().toISOString(), 
 
 /** Convenience: derive the outcome from the gate verdict. */
 export function applyGate(job, gate, { at = new Date().toISOString(), reason = null, partial = false } = {}) {
+  if (!gate || typeof gate.verdict !== "string") {
+    throw new JobTransitionError(job.status, "COMPLETED", "A gate result is required to finish a research job");
+  }
   const target = gate.verdict === "BLOCKED" ? "BLOCKED" : partial ? "PARTIAL" : "COMPLETED";
   return transitionJob(job, target, { at, reason: reason ?? `gate:${gate.verdict}`, gate });
 }

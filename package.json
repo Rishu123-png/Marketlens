@@ -8,7 +8,9 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test": "node --test",
-    "check": "node scripts/check-syntax.js"
+    "check": "node scripts/check-syntax.js",
+    "worker": "node scripts/worker.js",
+    "worker:once": "node scripts/worker.js --once"
   },
   "dependencies": {
     "@vitejs/plugin-react": "6.2.1",

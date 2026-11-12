@@ -23,6 +23,21 @@
     },
     "api/analysis.js": {
       "maxDuration": 30
+    },
+    "api/research.js": {
+      "maxDuration": 30
+    },
+    "api/jobs.js": {
+      "maxDuration": 30
+    },
+    "api/jobs/[jobId].js": {
+      "maxDuration": 30
+    },
+    "api/worker.js": {
+      "maxDuration": 300
+    },
+    "api/news.js": {
+      "maxDuration": 30
     }
   },
   "rewrites": [
