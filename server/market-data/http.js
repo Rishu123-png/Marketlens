@@ -38,7 +38,27 @@ export async function fetchJson(url, { timeoutMs = DEFAULT_TIMEOUT_MS, providerI
     try {
       data = JSON.parse(text);
     } catch {
-      throw new Error(redactUrlSecrets(text, url).slice(0, 250) || `Provider HTTP ${response.status}`);
+      // Some providers return a plain-text error page with HTTP 200. Classify it
+      // as an operational failure instead of a generic error, otherwise the
+      // provider circuit never opens and every request keeps spending quota.
+      const message = redactUrlSecrets(text, url).slice(0, 250) || `Provider HTTP ${response.status}`;
+      const error = new Error(message);
+      const lower = message.toLowerCase();
+      if (/premium|subscription|not available under your current|upgrade your plan/.test(lower)) {
+        error.status = 403;
+        error.kind = "permission";
+      } else if (/rate limit|quota|credits|requests per day|too many requests/.test(lower)) {
+        error.status = 429;
+        error.kind = "rate-limited";
+      } else if (response.status >= 400) {
+        error.status = response.status;
+        error.kind = response.status === 429 ? "rate-limited" : "upstream";
+      }
+      if (providerId) {
+        recorded = true;
+        if (error.status) await recordProviderFailure(providerId, error, { headers: response.headers });
+      }
+      throw error;
     }
 
     if (!response.ok) {

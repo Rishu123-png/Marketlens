@@ -20,10 +20,10 @@ These are actual responses recorded by the market-data diagnostics, not vendor c
 
 | Provider | Observed result | Meaning |
 | --- | --- | --- |
-| FMP | `403` from the retired legacy quote endpoint before the adapter rewrite | The old `/api/v3/quote` path is gone. The adapter now uses the documented stable endpoints (`/stable/quote`, `/stable/historical-price-eod/full`, `/stable/historical-chart/{interval}`). The new code has not yet been re-verified against the live key at audit time. |
-| Twelve Data | `429` — free credits exhausted (952+ credits had been used) | Free Basic is **800 requests/day, 8/minute**. Retrying does not create credits. |
-| Alpha Vantage | quota exhausted | Free key is **25 requests/day**. Retrying does not create credits. |
-| Coverage | catalogued `160`, provider-mapped `160`, quote-enabled `160`, verified latest `0`, intraday successes `0` | Mapping is not coverage. Zero live prices were verified. |
+| FMP | Stable `/stable/quote` returns **HTTP 200 with a plain-text body** beginning `Premium Query Parameter…` / `not available under your current subscription`; `/stable/historical-chart/5min` returns `Restricted Endpoint…` | The key has no India (or intraday) entitlement. This is a **plan restriction**, not a symbol typo. The adapter now recognises these text bodies, maps them to a permission failure, and opens a 6-hour circuit so a market-overview batch cannot spend 24 calls on the same restriction. |
+| Twelve Data | `429` — free credits exhausted: `1065 API credits were used, with the current limit being 800` | Free Basic is **800 requests/day, 8/minute**. Retrying does not create credits. Circuit open until the next UTC day. |
+| Alpha Vantage | `429`-shaped `Note` in a JSON body: free key asks for “1 request per second” and mentions the 25-request free allowance | The free key is throttled; a 60-second circuit prevents a retry storm. |
+| Coverage | catalogued `160`, provider-mapped `160`, quote-supported `160`, quote-enabled `160`, verified latest `0`, candle-supported `160`, verified historical `0` | Mapping is not coverage. Zero live prices or candles were verified. |
 
 The 403/429/quota results are the reason the new orchestration layer fails closed: a provider-level circuit opens after a rate-limit, permission or quota response, and the remaining budget is not spent on repeated attempts.
 

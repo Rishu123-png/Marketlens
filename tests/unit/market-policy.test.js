@@ -88,6 +88,26 @@ test("fetchJson records a quota header without recording the request URL", async
   }
 });
 
+test("a plain-text premium error page opens the circuit instead of retrying forever", async () => {
+  resetProviderPolicyForTests();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response("Premium Query Parameter: not available under your current subscription; upgrade your plan", {
+      status: 200,
+      headers: { "content-type": "text/plain" }
+    });
+  try {
+    await assert.rejects(() => fetchJson("https://provider.example/quote", { providerId: "fmp" }), /Premium/);
+    const verdict = await checkProvider("fmp");
+    assert.equal(verdict.allowed, false);
+    assert.equal(verdict.reason, "permission-or-endpoint");
+    assert.equal(providerPolicySnapshot().providers.fmp.lastHttpStatus, 403);
+  } finally {
+    globalThis.fetch = originalFetch;
+    resetProviderPolicyForTests();
+  }
+});
+
 test("FMP uses the stable quote endpoint and never falls back to a bare NSE ticker", async () => {
   resetProviderPolicyForTests();
   await withEnv({ FMP_API_KEY: "test-key" }, async () => {
