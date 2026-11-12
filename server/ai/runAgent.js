@@ -17,6 +17,7 @@ import { agentRunSchema } from "../../shared/schemas/agent.js";
 import { getAgentConfig } from "./config.js";
 import { AIProviderError, groqProvider } from "./providers/groq.js";
 import { recordUsage } from "./usage.js";
+import { executeToolCall } from "../agents/tools.js";
 
 export class AICompletionError extends Error {
   constructor(message, { attempts = 0, retryable = false, cause } = {}) {
@@ -30,6 +31,24 @@ export class AICompletionError extends Error {
 }
 
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function mergeUsage(total, usage) {
+  if (!usage) return total;
+  if (!total) return { ...usage };
+  const merged = { ...total };
+  for (const key of ["prompt_tokens", "completion_tokens", "total_tokens"]) {
+    if (Number.isFinite(usage[key])) merged[key] = (merged[key] ?? 0) + usage[key];
+  }
+  return merged;
+}
+
+function isToolUnsupported(error) {
+  if (error?.kind === "tools-unsupported") return true;
+  return (
+    (error?.status === 400 || error?.status === 422) &&
+    /tool|function|response_format/i.test(String(error?.message ?? ""))
+  );
+}
 const MAX_BACKOFF_MS = 5_000;
 
 function parseJson(content) {
@@ -75,7 +94,10 @@ export async function runStructuredCompletion({
   config = {},
   provider = groqProvider,
   sleep = defaultSleep,
-  now = () => new Date()
+  now = () => new Date(),
+  tools = null,
+  toolContext = null,
+  maxToolRounds = 2
 } = {}) {
   if (!Array.isArray(messages) || messages.length === 0) {
     throw new TypeError("messages must be a non-empty array");
@@ -87,47 +109,123 @@ export async function runStructuredCompletion({
   const retries = Number.isInteger(config.retries) ? config.retries : 0;
   const backoffMs = Number.isInteger(config.backoffMs) ? config.backoffMs : 400;
   const startedAt = now();
+  const toolList = Array.isArray(tools) && tools.length ? tools : null;
+  const rounds = Number.isInteger(maxToolRounds) && maxToolRounds >= 0 ? maxToolRounds : 2;
+  const budget = { used: 0 };
+  const baseMessages = messages;
   let attempts = 0;
   let lastError = null;
+  let toolsDisabled = false;
 
   for (let attempt = 1; attempt <= retries + 1; attempt += 1) {
     attempts = attempt;
+    const audit = [];
+    let toolRounds = 0;
+    let usageTotals = null;
+
+    messages = baseMessages;
 
     try {
-      const response = await provider.completeJson({
-        messages,
-        model: config.model,
-        temperature: config.temperature,
-        maxOutputTokens: config.maxOutputTokens ?? null,
-        timeoutMs: config.timeoutMs ?? 20_000
-      });
+      // Tool calls are executed by application code between model turns. The
+      // final round withholds tools so the model must answer in JSON.
+      for (let round = 0; round <= rounds; round += 1) {
+        const useTools = Boolean(toolList && toolContext && !toolsDisabled && round < rounds);
 
-      const parsed = parseJson(response.content);
-      const validated = schema.safeParse(parsed);
+        let response;
+        try {
+          response = await provider.completeJson({
+            messages,
+            model: config.model,
+            temperature: config.temperature,
+            maxOutputTokens: config.maxOutputTokens ?? null,
+            timeoutMs: config.timeoutMs ?? 20_000,
+            tools: useTools ? toolList : null
+          });
+        } catch (error) {
+          if (useTools && isToolUnsupported(error)) {
+            toolsDisabled = true;
+            round -= 1; // retry this round without tools
+            continue;
+          }
+          throw error;
+        }
 
-      if (!validated.success) {
-        throw new AIProviderError("AI output did not match the required schema.", {
-          status: 502,
-          retryable: true,
-          kind: "schema",
-          cause: validated.error
+        const roundUsage = response.usage ?? null;
+        usageTotals = mergeUsage(usageTotals, roundUsage);
+
+        if (useTools && Array.isArray(response.toolCalls) && response.toolCalls.length) {
+          toolRounds = round + 1;
+          audit.push(
+            ...response.toolCalls.map((call) => ({ name: call.name, ok: null }))
+          );
+
+          const assistantToolCalls = response.toolCalls.map((call) => ({
+            id: call.id || `call_${audit.length}`,
+            type: "function",
+            function: { name: call.name, arguments: call.arguments ?? "{}" }
+          }));
+
+          const toolMessages = response.toolCalls.map((call, index) => {
+            const outcome = executeToolCall(call, toolContext, budget);
+            const entry = audit[audit.length - response.toolCalls.length + index];
+            if (entry) entry.ok = outcome.ok;
+
+            return {
+              role: "tool",
+              tool_call_id: assistantToolCalls[index].id,
+              name: call.name,
+              content: outcome.content
+            };
+          });
+
+          messages = [
+            ...messages,
+            {
+              role: "assistant",
+              content: response.content || "",
+              tool_calls: assistantToolCalls
+            },
+            ...toolMessages
+          ];
+
+          continue;
+        }
+
+        const parsed = parseJson(response.content);
+        const validated = schema.safeParse(parsed);
+
+        if (!validated.success) {
+          throw new AIProviderError("AI output did not match the required schema.", {
+            status: 502,
+            retryable: true,
+            kind: "schema",
+            cause: validated.error
+          });
+        }
+
+        recordUsage({
+          agent: config.agent ?? "unknown",
+          model: response.model ?? config.model ?? "unknown",
+          usage: usageTotals
         });
+
+        return {
+          output: validated.data,
+          usage: usageTotals,
+          attempts,
+          model: response.model ?? config.model ?? null,
+          provider: response.provider ?? provider.id ?? null,
+          durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
+          toolCalls: audit.slice(0, 12),
+          toolRounds,
+          toolsDisabled
+        };
       }
 
-      recordUsage({
-        agent: config.agent ?? "unknown",
-        model: response.model ?? config.model ?? "unknown",
-        usage: response.usage
+      throw new AIProviderError("AI tool loop ended without a final answer.", {
+        status: 502,
+        retryable: true
       });
-
-      return {
-        output: validated.data,
-        usage: response.usage ?? null,
-        attempts,
-        model: response.model ?? config.model ?? null,
-        provider: response.provider ?? provider.id ?? null,
-        durationMs: Math.max(0, now().getTime() - startedAt.getTime())
-      };
     } catch (error) {
       lastError = error;
       const retryable = error?.retryable === true;
@@ -161,7 +259,9 @@ export async function runAgent({
   jobId = null,
   instrumentId = null,
   sleep,
-  now = () => new Date()
+  now = () => new Date(),
+  tools = null,
+  toolContext = null
 } = {}) {
   const resolved = config ?? getAgentConfig(agent);
   const startedAt = now();
@@ -194,7 +294,9 @@ export async function runAgent({
       config: resolved,
       provider,
       sleep,
-      now
+      now,
+      tools,
+      toolContext
     });
 
     return agentRunSchema.parse({
@@ -213,7 +315,10 @@ export async function runAgent({
       schemaVersion: resolved.schemaVersion,
       output: result.output,
       error: null,
-      usage: result.usage
+      usage: result.usage,
+      toolCalls: result.toolCalls ?? [],
+      toolRounds: result.toolRounds ?? 0,
+      toolsDisabled: result.toolsDisabled === true
     });
   } catch (error) {
     return agentRunSchema.parse({

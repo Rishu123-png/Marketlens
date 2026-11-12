@@ -25,6 +25,7 @@ import { ENVELOPE_VERSION, buildEvidenceEnvelope, evidenceIdsOf } from "../agent
 import { PROMPT_ENVELOPE_VERSION } from "../agents/prompt.js";
 import { validateAgentOutput } from "../agents/guard.js";
 import { runAgent } from "../ai/runAgent.js";
+import { toolsForAgent } from "../ai/toolPolicy.js";
 import { groqProvider } from "../ai/providers/groq.js";
 import { getAgentConfig } from "../ai/config.js";
 import { safeEvaluatePublicationGate } from "../reports/gate.js";
@@ -172,6 +173,8 @@ async function executeAgent({
     return run;
   }
 
+  const tooling = toolsForAgent(agent, envelope);
+
   let run;
   try {
     run = await runAgent({
@@ -182,7 +185,9 @@ async function executeAgent({
       provider,
       jobId,
       instrumentId,
-      now
+      now,
+      tools: tooling.tools,
+      toolContext: tooling.context
     });
   } catch (error) {
     run = failedRun(agent, errorMessage(error), { now, instrumentId, jobId, config });

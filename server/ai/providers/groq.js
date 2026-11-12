@@ -44,7 +44,10 @@ export const groqProvider = {
     maxOutputTokens = null,
     timeoutMs = 20_000,
     apiKey = process.env.GROQ_API_KEY,
-    fetchImpl = globalThis.fetch
+    fetchImpl = globalThis.fetch,
+    tools = null,
+    toolChoice = "auto",
+    responseFormat = { type: "json_object" }
   } = {}) {
     if (!apiKey) {
       throw new AIProviderError("Groq AI service is not configured.", {
@@ -67,8 +70,11 @@ export const groqProvider = {
         body: JSON.stringify({
           model,
           temperature,
-          response_format: { type: "json_object" },
+          ...(responseFormat ? { response_format: responseFormat } : {}),
           ...(maxOutputTokens ? { max_tokens: maxOutputTokens } : {}),
+          ...(Array.isArray(tools) && tools.length
+            ? { tools, tool_choice: toolChoice, parallel_tool_calls: false }
+            : {}),
           messages
         }),
         signal: controller.signal
@@ -88,16 +94,33 @@ export const groqProvider = {
           (typeof data?.error === "string" ? data.error : null) ||
           (text ? text.slice(0, 200) : `Provider HTTP ${response.status}`);
 
+        const toolRelated =
+          response.status === 400 &&
+          /tool|function_call|response_format/i.test(String(message));
+
         throw new AIProviderError(message, {
           status: response.status,
           retryable: response.status === 429 || response.status >= 500,
-          retryAfterSeconds: parseRetryAfter(response.headers)
+          retryAfterSeconds: parseRetryAfter(response.headers),
+          kind: toolRelated ? "tools-unsupported" : "provider"
         });
       }
 
-      const content = data?.choices?.[0]?.message?.content;
+      const choice = data?.choices?.[0];
+      const content = choice?.message?.content ?? null;
+      const rawToolCalls = Array.isArray(choice?.message?.tool_calls) ? choice.message.tool_calls : [];
 
-      if (!content) {
+      // A tool-call turn legitimately has no content. Normalise the calls so the
+      // agent loop never needs to know Groq's wire format.
+      const toolCalls = rawToolCalls
+        .map((call) => ({
+          id: String(call?.id ?? ""),
+          name: String(call?.function?.name ?? ""),
+          arguments: String(call?.function?.arguments ?? "{}")
+        }))
+        .filter((call) => call.name);
+
+      if (!content && toolCalls.length === 0) {
         throw new AIProviderError("Groq returned an empty analysis.", {
           status: 502,
           retryable: true
@@ -107,7 +130,9 @@ export const groqProvider = {
       const rawUsage = data?.usage || {};
 
       return {
-        content,
+        content: content ?? "",
+        toolCalls,
+        finishReason: choice?.finish_reason ?? null,
         provider: "groq",
         model: data?.model || model,
         usage: {

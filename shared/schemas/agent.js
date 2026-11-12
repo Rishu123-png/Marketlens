@@ -52,7 +52,21 @@ export const agentRunSchema = z
     output: z.record(z.string(), z.unknown()).nullable(),
     error: z.string().max(2000).nullable(),
 
-    usage: tokenUsageSchema.nullable().optional()
+    usage: tokenUsageSchema.nullable().optional(),
+
+    // Audit of application-executed tool calls (Groq tool calling). The model can
+    // only read data already present in the evidence envelope.
+    toolCalls: z
+      .array(
+        z.object({
+          name: z.string().min(1).max(40),
+          ok: z.boolean().nullable().optional()
+        })
+      )
+      .max(12)
+      .optional(),
+    toolRounds: nonNegativeIntegerSchema.max(6).optional(),
+    toolsDisabled: z.boolean().optional()
   })
   .superRefine((run, context) => {
     if (run.status === "COMPLETED") {
