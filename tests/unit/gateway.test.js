@@ -7,6 +7,7 @@ import {
   mapConcurrent
 } from "../../server/market-data/gateway.js";
 import { getInstrument } from "../../shared/instruments/catalog.js";
+import { normalizeQuote } from "../../server/market-data/normalize.js";
 
 function stubProvider(id, { quote, error, supported = true, onCall } = {}) {
   return {
@@ -22,11 +23,19 @@ function stubProvider(id, { quote, error, supported = true, onCall } = {}) {
   };
 }
 
+const stubInstrument = getInstrument("IN-EQ-RELIANCE");
+
+/**
+ * Contract-valid stub quote. Built through the real normalizer so the test
+ * fixtures cannot drift from the shape providers must actually produce.
+ */
 const verifiedQuote = (overrides = {}) => ({
-  quoteVerified: true,
-  price: 100,
-  symbol: "STUB",
-  updatedAt: new Date().toISOString(),
+  ...normalizeQuote({
+    item: { price: 100 },
+    instrument: stubInstrument,
+    source: "Stub",
+    provider: "stub"
+  }),
   ...overrides
 });
 
@@ -37,7 +46,7 @@ test("falls through providers in order and records the failures", async () => {
     cache: false,
     providers: [
       stubProvider("first", { error: new Error("boom") }),
-      stubProvider("second", { quote: verifiedQuote({ price: 250 }) })
+      stubProvider("second", { quote: verifiedQuote({ price: 250, provider: "second" }) })
     ]
   });
 
@@ -56,7 +65,7 @@ test("skips a provider that cannot map the instrument", async () => {
     cache: false,
     providers: [
       stubProvider("unmapped", { supported: false, onCall: () => { called = true; } }),
-      stubProvider("mapped", { quote: verifiedQuote({ price: 22000 }) })
+      stubProvider("mapped", { quote: verifiedQuote({ price: 22000, provider: "mapped" }) })
     ]
   });
 
@@ -177,4 +186,54 @@ test("mapConcurrent preserves input order and honours the width", async () => {
 
 test("mapConcurrent handles an empty list", async () => {
   assert.deepEqual(await mapConcurrent([], 4, async () => 1), []);
+});
+
+test("a provider quote that violates the contract is rejected in favour of the next provider", async () => {
+  clearQuoteCache();
+
+  const drifted = {
+    id: "drifted",
+    supports: () => true,
+    isConfigured: () => true,
+    async fetchQuote() {
+      // Missing instrumentId/source/freshness and carries a verified flag.
+      return { quoteVerified: true, price: 10, symbol: "BROKEN" };
+    }
+  };
+
+  const quote = await getVerifiedQuote("CONTRACTDRIFT", {
+    exchange: "NSE",
+    cache: false,
+    providers: [drifted, stubProvider("healthy", { quote: verifiedQuote({ price: 12, provider: "healthy" }) })]
+  });
+
+  assert.equal(quote.price, 12);
+  assert.equal(quote.provider, "healthy");
+  assert.equal(quote.fallbackUsed, true);
+  assert.match(quote.providerErrors[0].message, /failed contract validation/i);
+});
+
+test("a single drifted provider produces an honest 503, never the malformed quote", async () => {
+  clearQuoteCache();
+
+  await assert.rejects(
+    () =>
+      getVerifiedQuote("CONTRACTONLY", {
+        exchange: "NSE",
+        cache: false,
+        providers: [{
+          id: "drifted",
+          supports: () => true,
+          isConfigured: () => true,
+          async fetchQuote() {
+            return { quoteVerified: true, price: 10, symbol: "BROKEN" };
+          }
+        }]
+      }),
+    (error) => {
+      assert.equal(error.statusCode, 503);
+      assert.match(error.details[0].message, /failed contract validation/i);
+      return true;
+    }
+  );
 });

@@ -26,7 +26,7 @@ Acceptance: audit findings are traceable to files and numbers; no destructive ch
 | Boundary tests (no AI in gate/indicators/lifecycle, no zod in client bundle) | done | — | 7 tests |
 | Move `lib/server/rateLimit.js` → `server/security/rateLimit.js` | deferred | — | Pure moves wait for the M8 security pass; imports are stable today |
 
-No blocking decision remains. M1 shipped with 157 passing tests.
+No blocking decision remains. M1 shipped with 159 passing tests.
 
 ## M2 — India-first market data `partial`
 

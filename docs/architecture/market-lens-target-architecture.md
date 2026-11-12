@@ -94,7 +94,10 @@ Provider interface (**built**, `server/market-data/providers/*`):
 ```
 
 Rules: no provider reaches an endpoint directly; `gateway.js` owns order
-(`PRIMARY_MARKET_PROVIDER`), fallback and caching. Adapters never fabricate a
+(`PRIMARY_MARKET_PROVIDER`), fallback, caching and contract validation — every
+adapter response is checked against `quoteSchema` before it is cached or returned,
+so a drifted adapter degrades to the next provider instead of leaking a malformed
+quote. Adapters never fabricate a
 ticker — explicit mapping wins, equities/ETFs derive by exchange convention,
 indices without a mapping are `unsupported`.
 

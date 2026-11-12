@@ -164,8 +164,9 @@ Research jobs, agent runs, evidence, reports and comparisons have nowhere to liv
 
 ## 10. Existing tests and deployment
 
-157 tests, all passing. M0 baseline was 72; M1 added 85 (schemas 10, job lifecycle
-13, publication gate 32, AI abstraction 20, boundaries 7, report endpoint +3).
+159 tests, all passing. M0 baseline was 72; M1 added 87 (schemas 10, job lifecycle
+13, publication gate 32, AI abstraction 20, boundaries 7, report endpoint +3,
+gateway contract enforcement +2).
 
 CI (`ubuntu-latest`, Node 22): `npm ci` → `npm audit --audit-level=high` →
 `npm run check` → `npm test` → `npm run build`. No lint, no type checking, no

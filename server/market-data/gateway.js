@@ -8,6 +8,7 @@
  */
 
 import { instrumentFromSymbol } from "../../shared/instruments/catalog.js";
+import { quoteSchema } from "../../shared/schemas/quote.js";
 import { getProviderOrder, getProviders } from "./providers/index.js";
 
 const DEFAULT_CACHE_TTL_MS = 60_000;
@@ -81,6 +82,16 @@ export async function getVerifiedQuote(target, options = {}) {
 
       if (quote.quoteVerified !== true || quote.price === null) {
         throw new Error(`${provider.id} returned no verified price.`);
+      }
+
+      // Enforce the quote contract at the provider boundary. A drifted adapter
+      // must degrade to the next provider, not leak a malformed quote upward.
+      const contract = quoteSchema.safeParse(quote);
+      if (!contract.success) {
+        const firstIssue = contract.error.issues[0];
+        throw new Error(
+          `${provider.id} returned a quote that failed contract validation (${firstIssue.path.join(".") || "root"}: ${firstIssue.message}).`
+        );
       }
 
       const data = {
