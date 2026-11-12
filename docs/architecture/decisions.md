@@ -35,3 +35,14 @@ edit the `Decision` column and I will adjust the plan.
 | Quote access | Everything goes through `server/market-data/gateway.js` | One place for provider order, fallback, caching and the no-fabrication rule |
 | Prompt-injection defence | News text in a delimited evidence block, never in the system prompt; instructions repeated in the user turn | Retrieved content is untrusted input |
 | Provider key rotation | **Not implemented** | Rotating keys to evade rate limits violates provider terms; instead cache, batch, and limit per client |
+
+## Open decisions (need a call before the dependent milestone)
+
+| # | Decision | Options | Blocks |
+| --- | --- | --- | --- |
+| O1 | Durable research execution | Vercel background function / queue (QStash) / separate worker | M5 orchestration; in-request execution only supports Quick depth |
+| O2 | News + filings source | Which permitted provider(s), and their storage/redistribution terms | M4 ingestion and the News/Sentiment agents |
+| O3 | Chart rendering library | Lightweight candle renderer vs general charting library | M7 Chart Lab |
+| O4 | API versioning | Unversioned `/api/*` (current) until an external consumer exists | Public API contract; implement `/v1` alias then |
+| O5 | Auth model | Hosted auth vs first-party sessions | M8 persistence of user-owned reports and watchlists |
+| O6 | Shared rate-limit/cache store | Upstash (already supported) vs Postgres | Cross-instance limits and reproducibility |

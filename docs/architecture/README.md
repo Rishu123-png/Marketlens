@@ -9,8 +9,10 @@ here so implementation decisions stay traceable to a decision.
 
 | Document | Purpose |
 | --- | --- |
-| [`current-state.md`](./current-state.md) | What exists in this repository today, and the gap analysis |
-| [`decisions.md`](./decisions.md) | The ten architecture decisions and their status |
+| [`audit.md`](./audit.md) | Milestone 0 audit: what exists today, file by file, with risks and gaps |
+| [`market-lens-target-architecture.md`](./market-lens-target-architecture.md) | The agreed target: layers, schemas, orchestration, gate, storage, API |
+| [`roadmap.md`](./roadmap.md) | Milestones M0–M10 with tasks, dependencies, acceptance criteria and status |
+| [`decisions.md`](./decisions.md) | Decision log, including open decisions |
 | [`data-flow.md`](./data-flow.md) | Quote → evidence → agents → report, with failure behaviour |
 | [`agents.md`](./agents.md) | Specialist agent contracts: inputs, outputs, prohibitions |
 

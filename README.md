@@ -43,8 +43,10 @@ caching and the rule that an unverified price is never returned.
 ## Architecture
 
 Market Lens is being extended from a quote dashboard into a multi-agent research
-terminal. The engineering blueprint, decision log, data-flow and agent contracts
-live in [`docs/architecture/`](docs/architecture/README.md).
+terminal. Start at [`docs/architecture/`](docs/architecture/README.md):
+the [audit](docs/architecture/audit.md) of what exists, the
+[target architecture](docs/architecture/market-lens-target-architecture.md), and
+the [roadmap](docs/architecture/roadmap.md) with milestone status.
 
 Deterministic calculations live in `server/`, never in prompts. The indicator
 engine (`server/indicators/`) is the first delivered module; the Technical agent
