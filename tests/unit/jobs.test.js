@@ -77,6 +77,25 @@ test("unknown job ids raise a 404-shaped error", () => {
   });
 });
 
+test("only FAILED or BLOCKED jobs can be explicitly retried", () => {
+  const store = new InMemoryJobStore();
+  const failedJob = queuedJob(store);
+  store.fail(failedJob.jobId, "provider exploded");
+  assert.equal(store.get(failedJob.jobId).status, "FAILED");
+
+  const retried = store.retry(failedJob.jobId);
+  assert.equal(retried.status, "QUEUED");
+  assert.equal(retried.gate, null);
+  assert.equal(retried.history.at(-1).from, "FAILED");
+  assert.equal(retried.history.at(-1).to, "QUEUED");
+  assert.match(retried.history.at(-1).reason, /retry requested/);
+
+  const completed = queuedJob(store);
+  store.transition(completed.jobId, "RUNNING");
+  store.complete(completed.jobId, gate("PASS"));
+  assert.throws(() => store.retry(completed.jobId), /Only FAILED or BLOCKED jobs can be retried/);
+});
+
 test("worker records results and applies the gate verdict", async () => {
   const store = new InMemoryJobStore();
   const job = queuedJob(store);
@@ -187,6 +206,10 @@ test("qstash publish posts the job to the worker with a bearer token", async () 
 
 test("qstash publish fails closed without configuration or on upstream error", async () => {
   await assert.rejects(() => publishToQStash({ jobId: "x" }, { token: "", workerUrl: "" }), /QSTASH_TOKEN/);
+  await assert.rejects(
+    () => publishToQStash({ jobId: "x" }, { token: "t", workerUrl: "http://worker.example.com" }),
+    /must use HTTPS/
+  );
 
   await assert.rejects(
     () =>

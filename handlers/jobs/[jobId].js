@@ -2,6 +2,8 @@
 import { JobNotFoundError, resolveJobStore } from "../../server/jobs/store.js";
 import { rateLimit } from "../../lib/server/rateLimit.js";
 import { ownerFromRequest, ownerMatches } from "../../server/jobs/access.js";
+import { getQueue, queueStatus } from "../../server/jobs/queue.js";
+import { JobTransitionError } from "../../server/orchestrator/jobLifecycle.js";
 
 function summariseRun(run) {
   return {
@@ -61,6 +63,33 @@ export default async function handler(req, res) {
       });
     }
 
+    if (req.method === "POST") {
+      // Explicit retry: only FAILED/BLOCKED, owner-scoped, one fresh queue
+      // delivery. The retry counter is visible in the transition history.
+      const retried = await store.retry(jobId, { reason: "retry requested by owner" });
+      try {
+        const delivery = await getQueue().enqueue({
+          jobId,
+          retry: true,
+          deduplicationId: `${jobId}:retry:${Date.now()}`
+        });
+        return res.status(202).json({
+          jobId,
+          status: retried.status,
+          retried: true,
+          queue: delivery,
+          queueStatus: queueStatus().active,
+          note: "The job was re-queued. Previous agent runs and the previous report are retained."
+        });
+      } catch (error) {
+        await store.fail(jobId, `Retry queue delivery failed: ${error instanceof Error ? error.message : "unknown"}`);
+        return res.status(503).json({
+          error: "The job could not be re-queued.",
+          retryAfterSeconds: 30
+        });
+      }
+    }
+
     const result = await store.getResult(jobId);
     const runs = (await store.getAgentRuns(jobId)) || {};
 
@@ -81,6 +110,9 @@ export default async function handler(req, res) {
   } catch (error) {
     if (error instanceof JobNotFoundError) {
       return res.status(404).json({ error: "Research job not found.", jobId });
+    }
+    if (error instanceof JobTransitionError) {
+      return res.status(409).json({ error: error.message, jobId, from: error.from, to: error.to });
     }
     return res.status(500).json({ error: "Could not load the research job." });
   }

@@ -12,14 +12,17 @@ import { quoteSchema } from "../../shared/schemas/quote.js";
 import { validateQuoteIdentity } from "./identity.js";
 import { dataFreshness, recordMarketRequest, recordQuoteObservation } from "./observations.js";
 import { getProviderOrder, getProviders } from "./providers/index.js";
+import { checkProvider } from "./providerPolicy.js";
+import { QUOTE_CACHE_TTL_MS } from "./cachePolicy.js";
 
-const DEFAULT_CACHE_TTL_MS = 60_000;
+const DEFAULT_CACHE_TTL_MS = QUOTE_CACHE_TTL_MS;
 const DEFAULT_BUDGET_MS = 25_000;
 const PER_PROVIDER_TIMEOUT_MS = 10_000;
 const MAX_CACHE_ENTRIES = 500;
 const SYMBOL_PATTERN = /^\^?[A-Z0-9._:&-]{1,40}$/;
 
 const cache = new Map();
+const inflight = new Map();
 
 export function clearQuoteCache() {
   cache.clear();
@@ -51,7 +54,7 @@ function resolveInstrument(target, exchange) {
  * @param {object|string} target Catalog instrument, or a bare symbol.
  * @param {{ exchange?: string, providers?: object[], primary?: string, cache?: boolean, cacheTtlMs?: number }} [options]
  */
-export async function getVerifiedQuote(target, options = {}) {
+async function getVerifiedQuoteUncached(target, options = {}) {
   const instrument = resolveInstrument(target, options.exchange);
 
   if (!instrument?.symbol) throw badRequest("A stock symbol is required.");
@@ -110,6 +113,19 @@ export async function getVerifiedQuote(target, options = {}) {
     if (typeof provider.isConfigured === "function" && !provider.isConfigured()) {
       const message = "API key is not configured.";
       errors.push({ provider: provider.id, message });
+      recordMarketRequest({ ...requestContext, attempted: false, error: new Error(message) });
+      continue;
+    }
+
+    const policy = await checkProvider(provider.id);
+    if (!policy.allowed) {
+      const message = `Provider circuit open (${policy.reason}); retry after ${policy.retryAfterSeconds}s.`;
+      errors.push({
+        provider: provider.id,
+        message,
+        reason: policy.reason,
+        retryAfterSeconds: policy.retryAfterSeconds
+      });
       recordMarketRequest({ ...requestContext, attempted: false, error: new Error(message) });
       continue;
     }
@@ -181,7 +197,9 @@ export async function getVerifiedQuote(target, options = {}) {
       errors.push({
         provider: provider.id,
         message: error instanceof Error ? error.message : "Unknown provider error",
-        status: Number.isFinite(Number(error?.status)) ? Number(error.status) : null
+        status: Number.isFinite(Number(error?.status)) ? Number(error.status) : null,
+        reason: error?.kind ?? null,
+        retryAfterSeconds: Number.isFinite(Number(error?.retryAfterSeconds)) ? Number(error.retryAfterSeconds) : null
       });
       recordMarketRequest({
         ...requestContext,
@@ -207,6 +225,24 @@ export async function getVerifiedQuote(target, options = {}) {
     quote: null
   });
   throw error;
+}
+
+/**
+ * Deduplicate concurrent identical quote fetches. A rejected promise is
+ * removed immediately so the next request can try again.
+ */
+export async function getVerifiedQuote(target, options = {}) {
+  if (options.cache === false) return getVerifiedQuoteUncached(target, options);
+  const instrument = resolveInstrument(target, options.exchange);
+  if (!instrument?.symbol) return getVerifiedQuoteUncached(target, options);
+
+  const providerKey = options.providers?.map((provider) => provider.id).join(",") || options.primary || "default";
+  const key = `${instrument.id}|${instrument.exchange}|${providerKey}`;
+  if (inflight.has(key)) return inflight.get(key);
+
+  const promise = getVerifiedQuoteUncached(target, options).finally(() => inflight.delete(key));
+  inflight.set(key, promise);
+  return promise;
 }
 
 /**

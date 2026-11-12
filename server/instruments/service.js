@@ -24,16 +24,40 @@ export const ASSET_TYPES = Object.freeze(["equity", "index", "etf", "mutualfund"
 export const EXCHANGES = Object.freeze(["NSE", "BSE", "NASDAQ", "NYSE", "AMEX", "INDEX"]);
 
 /** Configured providers and what each can do for this instrument. */
-export function instrumentAvailability(instrument) {
+export function instrumentAvailability(instrument, { interval = "1day" } = {}) {
   const providers = getProviders();
   const mapped = providers.filter((provider) => provider.supports?.(instrument));
   const configured = mapped.filter((provider) => provider.isConfigured?.());
+  const quoteCapable = mapped.filter((provider) => typeof provider.fetchQuote === "function");
+  const candleCapable = mapped.filter(
+    (provider) =>
+      typeof provider.fetchCandles === "function" &&
+      (typeof provider.supportsCandleInterval !== "function" || provider.supportsCandleInterval(interval))
+  );
+
+  const quoteProviders = configured
+    .filter((provider) => typeof provider.fetchQuote === "function")
+    .map((provider) => provider.id);
+  const candleProviders = configured
+    .filter(
+      (provider) =>
+        typeof provider.fetchCandles === "function" &&
+        (typeof provider.supportsCandleInterval !== "function" || provider.supportsCandleInterval(interval))
+    )
+    .map((provider) => provider.id);
 
   return {
     mappedProviders: mapped.map((provider) => provider.id),
     configuredProviders: configured.map((provider) => provider.id),
-    quoteProviders: configured.filter((provider) => typeof provider.fetchQuote === "function").map((provider) => provider.id),
-    candleProviders: configured.filter((provider) => typeof provider.fetchCandles === "function").map((provider) => provider.id),
+    // "supported" = adapter/mapping capability, independent of an API key.
+    quoteSupported: quoteCapable.length > 0,
+    candleSupported: candleCapable.length > 0,
+    quoteMappedProviders: quoteCapable.map((provider) => provider.id),
+    candleMappedProviders: candleCapable.map((provider) => provider.id),
+    // "enabled" = a configured key exists for a mapped capability.
+    quoteProviders,
+    candleProviders,
+    unavailableFromAllConfigured: quoteProviders.length === 0 && candleProviders.length === 0,
     providerSymbols: Object.fromEntries(
       mapped.map((provider) => [provider.id, resolveProviderSymbol(instrument, provider.id)])
     )
@@ -71,9 +95,12 @@ export function publicInstrument(instrument, { availability = instrumentAvailabi
       ...availability,
       quoteEnabled: availability.quoteProviders.length > 0,
       candleEnabled: availability.candleProviders.length > 0,
+      unavailableFromAllConfigured:
+        availability.quoteProviders.length === 0 && availability.candleProviders.length === 0,
       quoteVerifiedRecently: quote.verified,
       lastQuoteAt: quote.lastSuccessAt,
-      lastCandleAt: candle?.lastSuccessAt ?? null
+      lastCandleAt: candle?.lastSuccessAt ?? null,
+      lastCandleCount: candle?.candleCount ?? 0
     }
   };
 }
@@ -185,11 +212,14 @@ export function buildInstrumentMatrix({ now = () => new Date() } = {}) {
   const rows = INSTRUMENTS.map((instrument) => {
     const availability = instrumentAvailability(instrument);
     const observed = quoteObservation(instrument.id);
+    const candle = candleObservation(instrument.id);
     return {
       instrument,
       availability,
       quoteObserved: Boolean(observed?.verified && observed.lastSuccessAt && Date.parse(observed.lastSuccessAt) >= freshCutoff),
-      failure: observed?.lastError ?? null
+      candleObserved: Boolean(candle?.lastSuccessAt && Date.parse(candle.lastSuccessAt) >= freshCutoff && (candle.candleCount ?? 0) > 0),
+      failure: observed?.lastError ?? null,
+      candleFailure: candle?.lastError ?? null
     };
   });
 
@@ -197,7 +227,11 @@ export function buildInstrumentMatrix({ now = () => new Date() } = {}) {
   const supported = count((row) => row.availability.mappedProviders.length > 0);
   const quoteEnabled = count((row) => row.availability.quoteProviders.length > 0);
   const candleEnabled = count((row) => row.availability.candleProviders.length > 0);
+  const quoteSupported = count((row) => row.availability.quoteSupported);
+  const candleSupported = count((row) => row.availability.candleSupported);
+  const unavailableFromAllConfigured = count((row) => row.availability.unavailableFromAllConfigured);
   const verified = count((row) => row.quoteObserved);
+  const candlesVerified = count((row) => row.candleObserved);
 
   const failuresByProvider = {};
   for (const row of quoteRows) {
@@ -216,13 +250,19 @@ export function buildInstrumentMatrix({ now = () => new Date() } = {}) {
       mergedSize: INSTRUMENTS.length + directory.count
     },
     coverage: {
+      // Six deliberately separate counts. "Supported" is a capability/mapping
+      // claim; "verified" requires an observed, identity-checked response.
       catalogued: INSTRUMENTS.length,
       providerMapped: supported,
+      quoteSupported,
       quoteEnabled,
       quoteNotEnabled: INSTRUMENTS.length - quoteEnabled,
       verifiedLatestQuote: verified,
+      candleSupported,
       candleEnabled,
+      verifiedHistoricalCandles: candlesVerified,
       candleObserved: snapshot.candles.withCandles,
+      unavailableFromAllConfigured,
       newsQueryable: INSTRUMENTS.length,
       realtime: 0
     },
@@ -241,8 +281,11 @@ export function buildInstrumentMatrix({ now = () => new Date() } = {}) {
         exchange,
         {
           catalogued: INSTRUMENTS.filter((instrument) => instrument.exchange === exchange).length,
+          quoteSupported: count((row) => row.instrument.exchange === exchange && row.availability.quoteSupported),
           quoteEnabled: count((row) => row.instrument.exchange === exchange && row.availability.quoteProviders.length > 0),
-          verified: count((row) => row.instrument.exchange === exchange && row.quoteObserved)
+          verified: count((row) => row.instrument.exchange === exchange && row.quoteObserved),
+          candleSupported: count((row) => row.instrument.exchange === exchange && row.availability.candleSupported),
+          verifiedCandles: count((row) => row.instrument.exchange === exchange && row.candleObserved)
         }
       ])
     ),
@@ -250,7 +293,8 @@ export function buildInstrumentMatrix({ now = () => new Date() } = {}) {
       cataloguedDoesNotMeanQuoted: true,
       verifiedMeansObservedInThisInstance: true,
       observationPersistence: "per-instance; resets on cold start",
-      note: "A configured provider counts as quote-enabled only if it maps the instrument; verified counts only recent successful observations."
+      supportedIsNotVerified: true,
+      note: "Supported/Enabled are mapping and configuration claims. Verified counts only recent successful, identity-checked observations in this instance. Unavailable means no configured provider maps a quote or candle capability."
     }
   };
 }

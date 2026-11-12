@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import { signQstashPayload, verifyQstashSignature } from "../../server/jobs/qstashSignature.js";
 import { ownerFromRequest, ownerHash, ownerMatches } from "../../server/jobs/access.js";
 
@@ -29,6 +30,15 @@ test("a body-bound signature fails closed when the raw body is unavailable", () 
   const verdict = verifyQstashSignature({ signature, rawBody: null, keys: [key] });
   assert.equal(verdict.ok, false);
   assert.equal(verdict.status, "body-unavailable");
+});
+
+test("a signature without an expiry claim is rejected", () => {
+  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+  const payload = Buffer.from(JSON.stringify({ iss: "Upstash" })).toString("base64url");
+  const signature = createHmac("sha256", key).update(`${header}.${payload}`).digest("base64url");
+  const verdict = verifyQstashSignature({ signature: `${header}.${payload}.${signature}`, keys: [key] });
+  assert.equal(verdict.ok, false);
+  assert.equal(verdict.status, "invalid");
 });
 
 test("no configured signing key is reported rather than treated as valid", () => {

@@ -244,6 +244,93 @@ test("saveResult persists evidence from the raw evidence list only", async () =>
   assert.ok(!calls.some((call) => call.params?.[0] === "ev-compact"));
 });
 
+test("pg store persists the result envelope and reads it back after a refresh", async () => {
+  const calls = [];
+  const reportRow = {
+    report_id: "report_abcdef1234567890",
+    job_id: "research_abcdefgh",
+    instrument_id: "IN-EQ-INFY",
+    depth: "quick",
+    sections: { executiveSummary: "x" },
+    agent_status: { chart: "COMPLETED" },
+    evidence_ids: [],
+    gate: { verdict: "PASS_WITH_WARNINGS" },
+    methodology: "m",
+    versions: { orchestrator: "1" },
+    created_at: new Date("2026-02-10T09:00:00.000Z")
+  };
+  const client = {
+    async query(text, params) {
+      const sql = String(text).replace(/\s+/g, " ").trim();
+      calls.push({ sql, params });
+      if (sql.startsWith("SELECT * FROM reports")) return { rows: [reportRow] };
+      if (sql.startsWith("SELECT status, gate, versions")) {
+        return {
+          rows: [
+            {
+              status: "COMPLETED",
+              gate: { verdict: "PASS_WITH_WARNINGS" },
+              versions: { orchestrator: "1" },
+              data_warnings: ["single price source"],
+              evidence: { items: [] },
+              error: null,
+              updated_at: new Date("2026-02-10T09:05:00.000Z")
+            }
+          ]
+        };
+      }
+      return { rows: [], rowCount: 1 };
+    }
+  };
+
+  const store = createPgJobStore(client);
+  await store.saveResult("research_abcdefgh", {
+    report: { ...reportRow, reportId: reportRow.report_id, jobId: "research_abcdefgh", instrumentId: "IN-EQ-INFY", depth: "quick", sections: {}, agentStatus: {}, evidenceIds: [], gate: { verdict: "PASS_WITH_WARNINGS" }, methodology: "m", createdAt: "2026-02-10T09:00:00.000Z" },
+    gate: { verdict: "PASS_WITH_WARNINGS" },
+    dataWarnings: ["single price source"],
+    versions: { orchestrator: "1" },
+    status: "COMPLETED"
+  });
+  assert.ok(calls.some((call) => call.sql.startsWith("INSERT INTO research_job_results")));
+
+  const result = await store.getResult("research_abcdefgh");
+  assert.equal(result.status, "COMPLETED");
+  assert.equal(result.report.reportId, reportRow.report_id);
+  assert.deepEqual(result.dataWarnings, ["single price source"]);
+  assert.equal(result.updatedAt, "2026-02-10T09:05:00.000Z");
+});
+
+test("pg retry is explicit, clears the gate and records the transition", async () => {
+  const row = {
+    job_id: "research_abcdefgh",
+    instrument_id: "IN-EQ-INFY",
+    depth: "quick",
+    timeframe: "1D",
+    history_period: "1Y",
+    news_lookback_days: 30,
+    requested_modules: ["quote"],
+    status: "FAILED",
+    gate: null,
+    created_at: new Date("2026-02-10T09:00:00.000Z"),
+    updated_at: new Date("2026-02-10T09:01:00.000Z")
+  };
+  const calls = [];
+  const client = {
+    async query(text, params) {
+      const sql = String(text).replace(/\s+/g, " ").trim();
+      calls.push({ sql, params });
+      if (sql.startsWith("SELECT * FROM research_jobs")) return { rows: [row] };
+      if (sql.startsWith("SELECT from_status")) return { rows: [] };
+      return { rows: [], rowCount: 1 };
+    }
+  };
+  const store = createPgJobStore(client, { now: () => "2026-02-10T10:00:00.000Z" });
+  const retried = await store.retry("research_abcdefgh");
+  assert.equal(retried.status, "QUEUED");
+  assert.equal(retried.gate, null);
+  assert.ok(calls.some((call) => call.sql.startsWith("INSERT INTO research_job_events")));
+});
+
 test("filesystem object store round-trips artefacts and blocks traversal", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "marketlens-objects-"));
   try {

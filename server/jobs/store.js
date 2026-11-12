@@ -17,7 +17,8 @@ import {
   applyGate,
   createResearchJob,
   isTerminalJobStatus,
-  transitionJob
+  transitionJob,
+  retryJob
 } from "../orchestrator/jobLifecycle.js";
 import { REQUIRED_MODULES_BY_DEPTH } from "../../shared/schemas/research.js";
 
@@ -85,7 +86,12 @@ export class InMemoryJobStore {
 
   transition(jobId, status, options = {}) {
     const job = this.get(jobId);
-    const updated = transitionJob(job, status, { at: options.at ?? this.now(), reason: options.reason ?? null, gate: options.gate });
+    const updated = transitionJob(job, status, {
+      at: options.at ?? this.now(),
+      reason: options.reason ?? null,
+      gate: options.gate,
+      resetGate: options.resetGate === true
+    });
     this.jobs.set(jobId, updated);
     return updated;
   }
@@ -117,6 +123,12 @@ export class InMemoryJobStore {
     const job = this.get(jobId);
     if (isTerminalJobStatus(job.status)) return job;
     return this.transition(jobId, "CANCELLED", { reason: "cancelled by operator" });
+  }
+
+  retry(jobId, { reason = "retry requested by owner" } = {}) {
+    const job = retryJob(this.get(jobId), { at: this.now(), reason });
+    this.jobs.set(jobId, job);
+    return job;
   }
 
   saveAgentRuns(jobId, runs) {

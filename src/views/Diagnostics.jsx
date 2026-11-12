@@ -191,6 +191,10 @@ export default function Diagnostics() {
               <strong>{count(coverage?.catalogued)}</strong>
             </div>
             <div>
+              <span>QUOTE SUPPORTED</span>
+              <strong>{count(coverage?.quoteSupported)}</strong>
+            </div>
+            <div>
               <span>QUOTE ENABLED</span>
               <strong>{count(coverage?.quoteEnabled)}</strong>
             </div>
@@ -199,8 +203,16 @@ export default function Diagnostics() {
               <strong>{count(coverage?.verifiedLatestQuote)}</strong>
             </div>
             <div>
-              <span>CANDLE ENABLED</span>
-              <strong>{count(coverage?.candleEnabled)}</strong>
+              <span>CANDLE SUPPORTED</span>
+              <strong>{count(coverage?.candleSupported)}</strong>
+            </div>
+            <div>
+              <span>CANDLES VERIFIED</span>
+              <strong>{count(coverage?.verifiedHistoricalCandles)}</strong>
+            </div>
+            <div>
+              <span>UNAVAILABLE</span>
+              <strong>{count(coverage?.unavailableFromAllConfigured)}</strong>
             </div>
             <div>
               <span>REAL-TIME</span>
@@ -221,6 +233,7 @@ export default function Diagnostics() {
                 <th>PROVIDER</th>
                 <th>CONFIGURED</th>
                 <th>VERIFICATION</th>
+                <th>CIRCUIT / QUOTA</th>
                 <th>CAPABILITIES</th>
               </tr>
             </thead>
@@ -230,6 +243,15 @@ export default function Diagnostics() {
                   <td>{provider.label || id}</td>
                   <td>{statusChip(provider.configured)}</td>
                   <td>{provider.verification}</td>
+                  <td>
+                    {(() => {
+                      const policy = market?.providerPolicy?.providers?.[id];
+                      if (!policy) return "no attempt in this instance";
+                      return `${policy.circuit}${policy.retryAfterSeconds ? ` · retry ${policy.retryAfterSeconds}s` : ""} · ${
+                        policy.reason || policy.lastOutcome || "unknown"
+                      }${policy.quota?.remainingRequests != null ? ` · ${policy.quota.remainingRequests} left` : ""}`;
+                    })()}
+                  </td>
                   <td>
                     {Object.entries(provider.capabilities || {})
                       .map(([capability, enabled]) => `${capability}:${enabled === true ? "yes" : enabled === false ? "no" : enabled}`)
@@ -245,7 +267,9 @@ export default function Diagnostics() {
             {Object.entries(market?.mappingChecks || {}).map(([symbol, info]) => (
               <div key={symbol}>
                 <strong>{symbol}</strong>
-                <span>{info.exchange} · {info.currency}</span>
+                <span>
+                  {info.exchange} · {info.currency} · instrument metadata only
+                </span>
                 <ul>
                   {Object.entries(info.providers || {}).map(([provider, mapping]) => (
                     <li key={provider}>

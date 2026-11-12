@@ -54,7 +54,10 @@ export function verifyQstashSignature({ signature, rawBody = null, keys = null, 
   if (!payload) return { ok: false, status: "invalid", reason: "QStash signature payload is not valid JSON." };
 
   const seconds = Math.floor(now / 1000);
-  if (Number.isFinite(payload.exp) && payload.exp < seconds) {
+  if (!Number.isFinite(payload.exp)) {
+    return { ok: false, status: "invalid", reason: "QStash signature has no expiry claim." };
+  }
+  if (payload.exp < seconds) {
     return { ok: false, status: "expired", reason: "QStash signature has expired." };
   }
   if (Number.isFinite(payload.nbf) && payload.nbf > seconds + 5) {
