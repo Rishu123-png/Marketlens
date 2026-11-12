@@ -123,6 +123,10 @@ not activated in the UI.
 
 - [x] Full test suite, syntax guard, production build and dependency audit run locally.
 - [x] Deployment, security, observability and API references documented.
+- [x] Groq tool calling (read-only evidence tools) with audit fields and fallback.
+- [x] Official-first evidence adapters: RBI/SEBI/PIB feeds, BSE RSS hook, SEC EDGAR, AMFI NAV, data.gov.in.
+- [x] Coverage endpoint + UI strip + envelope coverage summary.
+- [ ] Live verification of official feeds, SEC EDGAR and AMFI from a networked deployment.
 - [ ] Live provider and Groq verification, QStash delivery, PostgreSQL migration run.
 - [ ] Load/performance checks and an agent evaluation dataset.
 

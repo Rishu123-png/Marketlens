@@ -1,3 +1,4 @@
+import CoverageBar from "../components/CoverageBar.jsx";
 import { useEffect, useRef, useState } from "react";
 import { api, formatTime } from "../lib/api.js";
 
@@ -163,6 +164,8 @@ export default function ResearchLab() {
           </p>
         </div>
       </header>
+
+      <CoverageBar />
 
       <form className="lab-controls" onSubmit={startResearch}>
         <label>

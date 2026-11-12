@@ -85,3 +85,35 @@ user     : task parameters + <evidence> JSON block </evidence>
 
 Never interpolate article text into the system prompt. If retrieved content
 contains instruction-like text, the agent must treat it as quoted material.
+
+## Tool calling (Groq)
+
+All agents run on the single Groq provider. Tool calling is an *additional read
+path over the same envelope*, never a way to acquire new data.
+
+| Tool | Reads | Limit |
+| --- | --- | --- |
+| `read_candles` | Recent OHLCV candles already in `marketContext.recentCandles` | 1–30 candles |
+| `read_indicator` | One calculated indicator from `technical` | known keys only |
+| `search_evidence` | Keyword match over supplied evidence items | 1–10 matches |
+| `read_evidence` | One evidence item by id | must exist in the envelope |
+
+Enforced in `server/agents/tools.js` and `server/ai/runAgent.js`:
+
+- No network access, no `process.env`, no filesystem: the tools are pure reads.
+- Unknown tool names, invalid arguments and malformed JSON return an error to the
+  model instead of executing anything.
+- At most 6 tool calls per run and 12,000 characters per result.
+- The final round withholds tools so the model must answer in JSON.
+- If the model rejects tools (400/422), the run continues once without tools and
+  records `toolsDisabled: true`.
+- Every run records `toolCalls: [{name, ok}]` and `toolRounds` for audit.
+
+Default tool-enabled agents: `chart`, `news`, `sentiment`. Override with
+`AI_TOOL_AGENTS`, or disable globally with `AI_TOOL_CALLING=off`.
+
+Because tools only read the envelope, an agent still cannot cite evidence it was
+not given: the guard rejects unknown evidence ids after the run. Coverage
+limitations travel in `quality.coverage`, so an agent can say "filings are
+unavailable" rather than implying it reviewed them.
+

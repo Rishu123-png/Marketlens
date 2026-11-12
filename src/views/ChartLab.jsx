@@ -1,3 +1,4 @@
+import CoverageBar from "../components/CoverageBar.jsx";
 import { useState } from "react";
 import PriceChart from "../components/PriceChart.jsx";
 import { api, formatMoney } from "../lib/api.js";
@@ -79,6 +80,8 @@ export default function ChartLab() {
           </p>
         </div>
       </header>
+
+      <CoverageBar />
 
       <form className="lab-controls" onSubmit={load}>
         <label>

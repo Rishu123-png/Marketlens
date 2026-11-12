@@ -18,6 +18,8 @@ here so implementation decisions stay traceable to a decision.
 | [`api.md`](./api.md) | Every route, its contract, error shapes and the job flow |
 | [`testing.md`](./testing.md) | Suites, conventions, what is and is not covered |
 | [`security.md`](./security.md) | Secrets, untrusted input, model-output guards, headers, gaps |
+| [`evidence-sources.md`](./evidence-sources.md) | Permitted/prohibited sources, adapters, caching and coverage states |
+| [`environment-audit.md`](./environment-audit.md) | Every environment variable, plus retirement proposals (nothing deleted) |
 | [`observability.md`](./observability.md) | What is logged today, what is missing, how to add it |
 
 ## Layered system

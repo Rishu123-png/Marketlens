@@ -80,3 +80,25 @@ design; adding a `user_id` column and a session check is the intended path.
   do not rely on cookies.
 - Audit logging of privileged actions (cancelling another user's job) does not
   exist yet because there are no user accounts.
+
+## AI tool calls
+
+Groq may call four tools (`read_candles`, `read_indicator`, `search_evidence`,
+`read_evidence`). They are a fixed allow-list implemented in application code,
+not model-generated code:
+
+- a tool can only read the current run's evidence envelope;
+- attempts to call anything else return an error to the model;
+- arguments are schema-validated, result size and call count are capped;
+- no tool performs a network request, reads a file, or touches `process.env`;
+- tool use is recorded on the stored agent run for audit.
+
+## Official-source access rules enforced in code
+
+- `SEC_USER_AGENT` must contain a contact email, otherwise the EDGAR adapter is
+  disabled rather than sending anonymous requests.
+- SEC requests are serialised to at most 10 per second and cached.
+- No NSE scraper exists; the NSE cookie path is opt-in and documented as
+  legally fragile.
+- AMFI NAV is labelled delayed; it is never returned as a quote.
+

@@ -401,3 +401,84 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--green); out
   .jobs-table { display: block; overflow-x: auto; white-space: nowrap; }
   .topbar-right { display: none; }
 }
+
+/* Evidence coverage strip: states what the deployment can and cannot retrieve. */
+.coverage-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  margin: 0 0 18px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.coverage-title {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.coverage-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.coverage-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  text-transform: uppercase;
+}
+
+.coverage-chip span {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.coverage-chip.available {
+  border-color: color-mix(in srgb, var(--green) 45%, transparent);
+}
+
+.coverage-chip.available span {
+  color: var(--green);
+}
+
+.coverage-chip.partial,
+.coverage-chip.degraded {
+  border-color: color-mix(in srgb, var(--amber) 45%, transparent);
+}
+
+.coverage-chip.partial span,
+.coverage-chip.degraded span {
+  color: var(--amber);
+}
+
+.coverage-chip.unavailable span {
+  color: var(--red);
+}
+
+.coverage-note {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.coverage-bar.degraded .coverage-title {
+  color: var(--amber);
+}

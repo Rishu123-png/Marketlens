@@ -16,6 +16,9 @@ or calculated server-side. There is deliberately no `/v1` prefix (decision O4).
 | `/api/indicators` | GET | Deterministic indicator snapshot | Includes engine version + parameters |
 | `/api/analysis` | GET | Candles + indicators + chart structure | **No AI**; used by Chart Lab |
 | `/api/news` | GET | News + filing evidence | `symbol`, `exchange`, `q`, `limit`, `filings=false` |
+| `/api/coverage` | GET | Which evidence capabilities are available, partial, degraded or unavailable | 60 s cache; never echoes values |
+| `/api/nav` | GET | Official AMFI end-of-day NAV | `isin` or `schemeCode`; `delayed: true` |
+| `/api/official-data` | GET | data.gov.in OGD records | `resource`, `limit`, `offset`, `filters`; 503 without `DATA_GOV_IN_API_KEY` |
 | `/api/provider-status` | GET | Capability, configuration and verification levels | Includes storage + queue status |
 | `/api/report` | POST | Single-shot AI commentary on a verified quote | Legacy quick path; one model call |
 | `/api/research` | POST | Create a durable research job | 202 with `jobId`; never runs agents in-request |

@@ -85,3 +85,22 @@ edit the `Decision` column and I will adjust the plan.
 | Frontend routing | Hash-based view switch inside the existing app | Preserves the tested Overview and avoids a router dependency |
 | Client secrets | None; same-origin API only | The browser never holds a provider key |
 | News feeds | Candidate official feeds ship unverified; only configured feeds are polled | Feed URLs and redistribution terms change; guessing is worse than configuring |
+
+## Groq backbone + evidence acquisition (2026-11-12)
+
+| Decision | Choice | Rationale |
+| --- | --- | --- |
+| AI provider | **Groq only** for all six agents, report generation, classification and interpretation | One provider keeps cost, failure modes and audit simple; no per-agent provider branching |
+| Tool calling | Application-executed, read-only tools over the run's evidence envelope | The model can re-read supplied candles/indicators/evidence; it cannot fetch, widen or invent data |
+| Tool scope | `chart`, `news`, `sentiment` by default; `AI_TOOL_AGENTS` overrides | Agents that most often need a second look; technical/risk stay on the fixed snapshot |
+| Tool failure | Withhold tools on the final round; fall back to a tool-free call if the model rejects tools | A missing tool feature must not fail an agent |
+| Tool audit | `toolCalls`, `toolRounds`, `toolsDisabled` on every agent run | Tool use is visible in stored runs, not inferred |
+| Source priority | Official documented feeds (RBI, SEBI, PIB, BSE RSS, SEC EDGAR, AMFI) before commercial free tiers | Licence clarity and stability; free tiers are optional fallbacks |
+| Exchange scraping | **Refused** — no NSE scraper, no BSE internal JSON API | NSE terms prohibit automated collection without written consent |
+| Feed defaults | RBI/SEBI/PIB enabled; BSE/NSE feeds require operator configuration | Documented feeds are safe to poll; uncertain URLs and terms are explicit opt-ins |
+| Documented vs verified | Coverage reports `liveVerification: "unverified"` until a request succeeds | Documentation is not reachability; users must be able to tell |
+| NAV semantics | AMFI NAV is a delayed reference, never a live price | An EOD NAV presented as a quote would be false precision |
+| Evidence caching | Shared TTL cache: feeds 3 min, NAV 6 h, SEC facts 24 h, OGD 12 h | Fewer external requests and explicit freshness |
+| Coverage surfacing | `/api/coverage` + coverage strip + envelope `quality.coverage` | Missing data is a stated limitation, not an empty section |
+| Env retirement | Proposal only; no variable changed or deleted | Vercel values could not be inspected from this environment |
+
