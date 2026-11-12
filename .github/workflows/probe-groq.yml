@@ -53,11 +53,9 @@ jobs:
           print(json.dumps({"usage": d.get("ai",{}).get("usage"), "agents": {k:{"env":v.get("credential",{}).get("envName"),"mode":v.get("credential",{}).get("mode"),"usage":v.get("usage")} for k,v in (d.get("ai",{}).get("agents") or {}).items()}, "market": d.get("market",{}).get("requestStates")}, indent=2))
           PY
           test "$code" = "200"
-      - name: Publish result comment
+      - name: Publish result to a temporary ntfy topic
         if: always()
         env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           python3 - <<'PY'
@@ -89,4 +87,6 @@ jobs:
           open("result.md", "w").write("\n".join(lines))
           print("\n".join(lines))
           PY
-          gh pr comment 7 --body-file result.md
+          test -s result.md
+          curl -sS --max-time 30 -H "Title: MarketLens production probe" --data-binary @result.md "https://ntfy.sh/marketlens-probe-${GITHUB_SHA}" >/tmp/ntfy.out
+          cat /tmp/ntfy.out
