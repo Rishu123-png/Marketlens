@@ -31,7 +31,7 @@ The app loads without any keys; every provider-backed screen then fails honestly
 with a configuration message instead of showing estimated data.
 
 ```bash
-npm run check    # parse-only syntax guard (api/, server/, lib/, scripts/, tests/, src/)
+npm run check    # parse-only syntax guard (api/, handlers/, server/, lib/, scripts/, tests/)
 npm test         # Node test runner: unit + endpoint suites
 npm run build    # production client build
 npm audit        # dependency audit
@@ -71,6 +71,20 @@ Same-origin `/api/*`, rate limited, no `/v1` prefix. Full reference:
 | `POST /api/report` | Single-shot AI commentary on a verified quote |
 | `POST /api/research`, `GET /api/jobs`, `GET /api/jobs/[jobId]` | Durable research jobs |
 | `POST /api/worker` | Queue delivery entry point (`WORKER_SECRET`) |
+
+### Deployment shape (Vercel Hobby)
+
+All routes are served by **one** Serverless Function, `api/index.js`; the thin
+route handlers live in `handlers/` and are dispatched through
+`server/http/router.js`. `vercel.json` rewrites `/api/:path*` to
+`/api?__path=:path*` and caps the function at 60 s.
+
+This is deliberate: the Hobby plan rejects deployments with more than 12
+functions under `api/` (error `exceeded_serverless_functions_per_deployment`) and
+rejects `maxDuration` above 60 (error `invalid_max_duration`). Both failures
+happen after a green build, which is why `npm test` now asserts the function
+budget and the 60 s cap. The research worker must run outside Vercel
+(`npm run worker`); `/api/worker` remains available but is capped at 60 s.
 
 ## Configuration
 

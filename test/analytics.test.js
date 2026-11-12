@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import historyHandler from "../api/history.js";
-import indicatorsHandler from "../api/indicators.js";
-import analysisHandler from "../api/analysis.js";
+import historyHandler from "../handlers/history.js";
+import indicatorsHandler from "../handlers/indicators.js";
+import analysisHandler from "../handlers/analysis.js";
 import { clearCandleCache } from "../server/market-data/candles.js";
 import { resetRateLimitsForTests } from "../lib/server/rateLimit.js";
 

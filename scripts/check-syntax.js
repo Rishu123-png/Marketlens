@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const targets = ["api", "server", "shared", "lib", "scripts", "test", "tests"];
+const targets = ["api", "handlers", "server", "shared", "lib", "scripts", "test", "tests"];
 
 async function collect(directory) {
   const files = [];

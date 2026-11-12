@@ -59,3 +59,20 @@ finished report.
   the response came from that cache.
 - `retrievedAt` is the time the server observed the data. It is always present on
   market-data, analysis and evidence responses.
+
+## Routing and deployment shape
+
+All routes below are served by a **single** Vercel Serverless Function,
+`api/index.js`, through the static table in `server/http/router.js`. Handlers
+live in `handlers/` because the Hobby plan caps a deployment at 12 functions and
+every file under `api/` counts as one.
+
+`vercel.json` rewrites `/api/:path*` → `/api?__path=:path*`. Outside Next.js,
+`api/[...path].js` is compiled as a single-segment route, so the rewrite (not a
+bracketed filename) is what makes nested paths like `/api/jobs/:id` work. The
+entry point rebuilds `/api/<path>` from `__path`, validates it (no traversal,
+no encoded separators), merges path params into `req.query`, and dispatches.
+
+To add a route: create `handlers/<name>.js` exporting a default handler, add it
+to the table in `server/http/router.js`, and extend the router test. Do **not**
+add files under `api/` — the function-budget test fails if you do.

@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import researchHandler from "../api/research.js";
-import jobsHandler from "../api/jobs.js";
-import jobDetailHandler from "../api/jobs/[jobId].js";
-import workerHandler from "../api/worker.js";
+import researchHandler from "../handlers/research.js";
+import jobsHandler from "../handlers/jobs.js";
+import jobDetailHandler from "../handlers/jobs/[jobId].js";
+import workerHandler from "../handlers/worker.js";
 import { resetJobStoreForTests } from "../server/jobs/store.js";
 import { resetQueueForTests } from "../server/jobs/queue.js";
 import { resetRateLimitsForTests } from "../lib/server/rateLimit.js";

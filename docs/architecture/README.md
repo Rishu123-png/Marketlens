@@ -76,9 +76,11 @@ market-lens/
 │   ├── views/                # MarketOverview, ChartLab, ResearchLab
 │   ├── lib/                  # api client, market client, legacy helpers
 │   └── styles.css            # design tokens + terminal styles
-├── api/                      # thin Vercel-style handlers
+├── api/
+│   └── index.js              # the ONLY Vercel function: routes /api/* (Hobby: ≤12)
+├── handlers/                 # one thin handler per route (not counted by Vercel)
 │   ├── health, instruments, universe, search, market, top-stocks, finnhub
-│   ├── history, indicators, analysis
+│   ├── history, indicators, analysis, coverage, nav, official-data
 │   ├── news, provider-status
 │   ├── report                       # single-shot AI commentary
 │   ├── research, jobs, jobs/[jobId] # durable research jobs
@@ -99,15 +101,22 @@ market-lens/
 │   │                         # agent, agentOutputs, gate, research, analysis
 │   └── instruments/catalog.js
 ├── lib/                      # shared browser/server config (stock universe)
-├── scripts/                  # dev server, api router, worker, syntax guard
+├── scripts/                  # dev server, worker, syntax guard
 ├── tests/unit/               # unit suites
 ├── test/                     # endpoint suites
 └── docs/architecture/        # this directory
 ```
 
-Rule: `api/` files stay thin — parse/validate the request, delegate to
-`server/`, format the response. All logic that needs a test lives in `server/`
-or `shared/`.
+Rule: handlers stay thin — parse/validate the request, delegate to `server/`,
+format the response. All logic that needs a test lives in `server/` or `shared/`.
+
+Routing rule: `server/http/router.js` holds the static route table
+(`handlers/` → `/api/...`). `api/index.js` is the only file under `api/`, because
+every file there becomes a Vercel Serverless Function and the Hobby plan allows
+12. `vercel.json` rewrites `/api/:path*` to `/api?__path=:path*`; a plain
+`api/[...path].js` would only match one path segment outside Next.js. Adding a
+route means adding a handler, an entry in the router table, and a test — not a
+new file in `api/`.
 
 ## Current status (2026-11-12)
 
