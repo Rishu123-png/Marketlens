@@ -13,19 +13,20 @@ status. Status vocabulary matches [`audit.md`](./audit.md): **done**, **partial*
 
 Acceptance: audit findings are traceable to files and numbers; no destructive change made.
 
-## M1 — Contracts and foundations `partial`
+## M1 — Contracts and foundations `done` (2026-11-12)
 
 | Task | Status | Depends on | Acceptance |
 | --- | --- | --- | --- |
 | Indicator engine (SMA/EMA/RSI/MACD/ATR/Bollinger/relVol) | done | — | Reference-value tests, nulls for insufficient history |
 | Syntax guard + CI step | done | — | `npm run check` fails on an unparseable module |
-| `shared/schemas` with runtime validation (instrument, quote, candle, evidence, agent run, report, gate) | planned | — | Validators reject malformed shapes; used by agents and API |
-| Research-job lifecycle module (statuses, transitions, timestamps) | planned | schemas | Illegal transitions rejected by tests |
-| Publication-gate rules module | planned | schemas | Deterministic PASS / PASS_WITH_WARNINGS / BLOCKED table tested |
-| AI provider abstraction (provider, model, temperature, tokens, timeout, retries per agent) | planned | schemas | One interface, Groq adapter; no model names hardcoded in agents |
-| Move `lib/server/rateLimit.js` → `server/security/rateLimit.js` | planned | — | Imports updated, tests green |
+| `shared/schemas` with runtime validation (instrument, quote, candle, evidence, agent run, job, report, gate, analysis) | done | — | Zod 4; malformed shapes rejected; 10 schema tests |
+| Research-job lifecycle module (statuses, transitions, timestamps) | done | schemas | Every legal and illegal transition tested (13 tests) |
+| Publication-gate rules module | done | schemas | Deterministic gate with thresholds, fail-closed, 32 tests |
+| AI provider abstraction (provider, model, temperature, tokens, timeout, retries per agent) | done | schemas | Groq adapter, 20 tests; legacy report path migrated |
+| Boundary tests (no AI in gate/indicators/lifecycle, no zod in client bundle) | done | — | 7 tests |
+| Move `lib/server/rateLimit.js` → `server/security/rateLimit.js` | deferred | — | Pure moves wait for the M8 security pass; imports are stable today |
 
-Blocking decision: none. This milestone is the highest-leverage next step.
+No blocking decision remains. M1 shipped with 157 passing tests.
 
 ## M2 — India-first market data `partial`
 
@@ -67,13 +68,13 @@ Prerequisite: a permitted news source. `NEWS_API_KEY` is declared but unused —
 
 Acceptance: five syndicated copies of one story produce one evidence item.
 
-## M5 — Six agents and orchestration `planned`
+## M5 — Six agents and orchestration `planned` (execution model decided)
 
 | Task | Depends on |
 | --- | --- |
 | Agent modules (prompt + input builder + output schema + tests) | M1 schemas, M3 indicators, M4 evidence |
 | Orchestrator: job creation, plan, statuses, timeouts, retries, cancellation | M1 lifecycle, M5 agent modules |
-| Durable execution (job table + worker), polling API | **blocked on hosting decision** |
+| Durable execution (job table + worker), polling API | **decided** — queue + independent worker (QStash candidate); see [`execution-deployment.md`](./execution-deployment.md) |
 | Risk pre-analysis validation | M2 data-quality rules |
 | Risk post-analysis review + contradiction detection | agents |
 | `POST /api/research`, `GET /api/research/:jobId`, `/agents` | orchestrator |

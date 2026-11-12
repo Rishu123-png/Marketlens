@@ -36,13 +36,29 @@ edit the `Decision` column and I will adjust the plan.
 | Prompt-injection defence | News text in a delimited evidence block, never in the system prompt; instructions repeated in the user turn | Retrieved content is untrusted input |
 | Provider key rotation | **Not implemented** | Rotating keys to evade rate limits violates provider terms; instead cache, batch, and limit per client |
 
-## Open decisions (need a call before the dependent milestone)
+## Decisions taken 2026-11-12 (M1)
 
-| # | Decision | Options | Blocks |
+| # | Decision | Choice | Consequence |
 | --- | --- | --- | --- |
-| O1 | Durable research execution | Vercel background function / queue (QStash) / separate worker | M5 orchestration; in-request execution only supports Quick depth |
-| O2 | News + filings source | Which permitted provider(s), and their storage/redistribution terms | M4 ingestion and the News/Sentiment agents |
-| O3 | Chart rendering library | Lightweight candle renderer vs general charting library | M7 Chart Lab |
-| O4 | API versioning | Unversioned `/api/*` (current) until an external consumer exists | Public API contract; implement `/v1` alias then |
-| O5 | Auth model | Hosted auth vs first-party sessions | M8 persistence of user-owned reports and watchlists |
-| O6 | Shared rate-limit/cache store | Upstash (already supported) vs Postgres | Cross-instance limits and reproducibility |
+| O1 | Durable research execution | **Queue + independently deployed worker (QStash candidate)**; never multi-agent work inside a Vercel request | Job lifecycle is queue-ready; worker/queue land in M5. See [`execution-deployment.md`](./execution-deployment.md) |
+| O2 | News sources | **Financial news + official company sources, NSE/BSE announcements, SEBI, RBI, government filings**; sentiment may use permitted public commentary | M4 ingestion must prefer primary sources and record provenance per item |
+| O3 | Charting | **Lightweight Charts**, rendering kept separate from calculations | Chart Lab consumes `/api/history` + `/api/indicators`; no pattern logic in the browser |
+| O4 | API versioning | **No `/v1` prefix** | Existing paths stay stable; version only when an external consumer exists |
+| O5 | Authentication | **Deferred**, architecture stays auth-ready | Research/job endpoints must key on a user identity hook from the start, even while anonymous |
+| O6 | Shared storage | **Upstash** for distributed rate limits; **PostgreSQL** for durable data at M8 | Rate limiter already fails over to Upstash; no DB in M1 |
+
+## Technical decisions taken in M1
+
+| Decision | Choice | Rationale |
+| --- | --- | --- |
+| Validation library | **Zod 4** (`zod@4.6.7`, MIT), server-side only | Runtime validation with useful issue paths; verified absent from the client bundle (build size unchanged) |
+| Validation strictness | Unknown keys tolerated, wrong types/missing fields rejected | Provider payloads and agent output carry extra fields; the contract is about required truth, not exhaustive shape |
+| Asset class model | Schema accepts 7 classes; API activates `equity/index/etf` only | Data model ≠ activation; other classes need authorised sources |
+| Gate authority | Deterministic `server/reports/gate.js`; AI never votes | Risk-agent text can add warnings, never clear or create a block (tested) |
+| Gate failure mode | **Fail closed** — internal error yields `BLOCKED` | An unverifiable report must not publish |
+| Gate thresholds | Declared in `GATE_THRESHOLDS` with `GATE_RULES_VERSION` | Stored reports remain explainable when rules change |
+| Retry policy | 1 retry for 429/5xx/network/timeout and schema-invalid output; none for 4xx/config | Bounded cost; no retry storms |
+| Retry-after handling | Honoured up to 5 s, otherwise fail fast | Sleeping 60 s inside a request wastes the budget; the queue can reschedule instead |
+| Key rotation | **Rejected** | Six Groq keys are separate credentials, not a rate-limit workaround |
+| Cost reporting | Tokens only, no currency conversion | Provider prices change; a fabricated cost figure is worse than none |
+| Legacy report path | `api/report.js` now uses the AI abstraction + `analysisReportSchema` | Preserves the HTTP contract (200/400/429/502/503) while removing the direct Groq call |

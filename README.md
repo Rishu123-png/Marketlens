@@ -49,8 +49,13 @@ the [audit](docs/architecture/audit.md) of what exists, the
 the [roadmap](docs/architecture/roadmap.md) with milestone status.
 
 Deterministic calculations live in `server/`, never in prompts. The indicator
-engine (`server/indicators/`) is the first delivered module; the Technical agent
-interprets its output but never computes it.
+engine (`server/indicators/`) computes; the Technical agent will interpret.
+
+Runtime-validated contracts (Zod) live in `shared/schemas/`, the research-job
+lifecycle in `server/orchestrator/jobLifecycle.js`, the deterministic publication
+gate in `server/reports/gate.js`, and the AI provider abstraction in `server/ai/`.
+The gate imports no AI code: model output can add warnings but can never publish a
+report that failed a data check.
 
 ## Deploying to Vercel
 

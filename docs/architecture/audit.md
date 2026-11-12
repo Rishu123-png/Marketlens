@@ -164,9 +164,8 @@ Research jobs, agent runs, evidence, reports and comparisons have nowhere to liv
 
 ## 10. Existing tests and deployment
 
-72 tests, all passing: indicators (24), gateway (9), providers/normalization (9),
-catalog (11), instruments integration (6), report endpoint (3), market endpoint (5),
-rate limiter (1), local adapter (1), module-parse guard (3).
+157 tests, all passing. M0 baseline was 72; M1 added 85 (schemas 10, job lifecycle
+13, publication gate 32, AI abstraction 20, boundaries 7, report endpoint +3).
 
 CI (`ubuntu-latest`, Node 22): `npm ci` → `npm audit --audit-level=high` →
 `npm run check` → `npm test` → `npm run build`. No lint, no type checking, no

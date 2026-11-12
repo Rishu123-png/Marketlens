@@ -1,5 +1,8 @@
 import { getVerifiedQuote } from "./market.js";
 import { rateLimit } from "../lib/server/rateLimit.js";
+import { analysisReportSchema } from "../shared/schemas/analysis.js";
+import { runStructuredCompletion } from "../server/ai/runAgent.js";
+import { DEFAULT_MODEL } from "../server/ai/config.js";
 
 function numberOrNull(value) {
   if (
@@ -169,91 +172,65 @@ Must state that the analysis used provider-backed metrics supplied by MarketLens
 `;
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20_000);
-    let response;
-    try {
-      response = await fetch(
-        "https://api.groq.com/openai/v1/chat/completions",
+    const completion = await runStructuredCompletion({
+      messages: [
         {
-          signal: controller.signal,
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`
-          },
-          body: JSON.stringify({
-            model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
-            temperature: 0.1,
-            response_format: { type: "json_object" },
-            messages: [
-              {
-                role: "system",
-                content: "You are a precise financial-data interpretation assistant. You never fabricate current market information and you never provide personalized investment advice."
-              },
-              { role: "user", content: prompt }
-            ]
-          })
-        }
-      );
-    } finally {
-      clearTimeout(timeout);
-    }
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      return res.status(
-        response.status
-      ).json({
-        error:
-          "Groq analysis request failed.",
-
-        details:
-          data?.error?.message ||
-          data?.error ||
-          "Unknown AI provider error."
-      });
-    }
-
-    const content =
-      data?.choices?.[0]
-        ?.message?.content;
-
-    if (!content) {
-      return res.status(502).json({
-        error:
-          "Groq returned an empty analysis."
-      });
-    }
-
-    let report;
-
-    try {
-      report =
-        JSON.parse(content);
-    } catch {
-      return res.status(502).json({
-        error:
-          "Groq returned invalid analysis data."
-      });
-    }
+          role: "system",
+          content: "You are a precise financial-data interpretation assistant. You never fabricate current market information and you never provide personalized investment advice."
+        },
+        { role: "user", content: prompt }
+      ],
+      schema: analysisReportSchema,
+      config: {
+        agent: "legacy-report",
+        model: process.env.GROQ_MODEL || DEFAULT_MODEL,
+        temperature: 0.1,
+        maxOutputTokens: null,
+        timeoutMs: 20_000,
+        retries: 1,
+        backoffMs: 400
+      }
+    });
 
     return res.status(200).json({
-      report,
-
-      analysisSource:
-        "Groq interpretation of verified MarketLens metrics",
-
+      report: completion.output,
+      analysisSource: "Groq interpretation of verified MarketLens metrics",
       verifiedMetrics
     });
   } catch (error) {
+    return sendCompletionError(res, error);
+  }
+}
+
+/**
+ * Map an abstraction-level AI failure onto the HTTP contract this endpoint has
+ * always exposed (503 not configured, 429 rate limit, 502 otherwise).
+ */
+function sendCompletionError(res, error) {
+  const cause = error?.cause ?? error;
+  const kind = cause?.kind;
+
+  if (kind === "configuration") {
+    return res.status(503).json({ error: "Groq AI service is not configured." });
+  }
+  if (kind === "timeout") {
+    return res.status(502).json({ error: "AI analysis provider timed out. Please try again." });
+  }
+  if (kind === "schema") {
     return res.status(502).json({
-      error: error?.name === "AbortError"
-        ? "AI analysis provider timed out. Please try again."
-        : error instanceof Error
-          ? error.message
-          : "Unable to generate AI analysis."
+      error: "Groq returned invalid analysis data.",
+      details: cause?.message
     });
   }
+  if (cause?.status === 429) {
+    res.setHeader?.("Retry-After", String(cause.retryAfterSeconds ?? 30));
+    return res.status(429).json({
+      error: "Groq rate limit reached. Please try again shortly.",
+      retryAfterSeconds: cause.retryAfterSeconds ?? null
+    });
+  }
+  return res.status(502).json({
+    error: "Groq analysis request failed.",
+    details: cause?.message || "Unknown AI provider error."
+  });
 }

@@ -20,6 +20,17 @@ These are invariants, not aspirations. Anything that breaks them is a regression
 6. Research only — no order placement, no return promises.
 7. Provider identity, timestamps and freshness travel with every number.
 
+## 1a. Status after M1 (2026-11-12)
+
+| Contract | Where | Status |
+| --- | --- | --- |
+| Instrument, quote, candle, evidence, agent run, job, report, gate | `shared/schemas/` (Zod 4) | **Built** |
+| Job lifecycle + gate-consistent transitions | `server/orchestrator/jobLifecycle.js` | **Built** |
+| Deterministic publication gate | `server/reports/gate.js` (`GATE_RULES_VERSION` 1.0.0) | **Built** |
+| AI provider abstraction, per-agent config, retries, token usage | `server/ai/` | **Built** (Groq adapter) |
+| Orchestrator, worker, queue | `server/orchestrator/` (rest) | **Planned — M5** |
+| News/filings ingestion, evidence store | — | **Planned — M4** |
+
 ## 2. Layers
 
 ```
@@ -49,9 +60,10 @@ planned.
 
 ## 3. Canonical schemas
 
-Schemas live in `shared/schemas/` (planned; `normalize.js` is the interim
-implementation) and are validated at runtime at every trust boundary: provider
-payload → internal, agent output → orchestrator, API body → handler.
+Schemas live in `shared/schemas/` (built with Zod 4) and are validated at runtime
+at every trust boundary: provider payload → internal, agent output → orchestrator,
+API body → handler. Validation is server-side only; the client bundle does not
+import them.
 
 | Schema | Key fields | Notes |
 | --- | --- | --- |
@@ -61,8 +73,8 @@ payload → internal, agent output → orchestrator, API body → handler.
 | `IndicatorSnapshot` | `candles`, `lastClose`, `movingAverages`, `rsi`, `macd`, `atr`, `bollinger`, `relativeVolume`, `volumeBaseline` | **Built**; add `calculationVersion` + `timeframe` |
 | `Evidence` | `id`, `sourceType`, `publisher`, `url`, `publishedAt`, `retrievedAt`, `instrumentIds`, `excerpt`, `verification`, `dedupeFingerprint` | Planned (M4) |
 | `AgentRun` | `agent`, `status`, `startedAt`, `completedAt`, `durationMs`, `retries`, `provider`, `model`, `promptVersion`, `schemaVersion`, `output`, `error` | Planned (M5) |
-| `ResearchJob` | `jobId`, `instrumentId`, `depth`, `timeframe`, `historyPeriod`, `newsLookbackDays`, `requestedModules`, `status`, `gate`, timestamps | Planned (M5) |
-| `ResearchReport` | `reportId`, `jobId`, `sections`, `agentStatus`, `evidenceIds`, `gate`, `methodology`, `snapshotRef` | Planned (M6) |
+| `ResearchJob` | `jobId`, `instrumentId`, `depth`, `timeframe`, `historyPeriod`, `newsLookbackDays`, `requestedModules`, `status`, `gate`, timestamps, `history` | **Built** (execution M5) |
+| `ResearchReport` | `reportId`, `jobId`, `sections`, `agentStatus`, `evidenceIds`, `gate`, `methodology`, `createdAt` | **Built** (storage M6/M8) |
 
 Every agent output carries `agent`, `status`, `schemaVersion`, `evidenceIds`,
 `confidence`, `limitations` and an `instrumentId`; malformed output is rejected,
@@ -110,7 +122,8 @@ produce them by looking at an image.
 
 ## 6. Orchestration
 
-Job lifecycle (**planned**, M5):
+Job lifecycle (**built** in `server/orchestrator/jobLifecycle.js`; orchestration
+and durable execution are M5):
 
 ```
 CREATED → VALIDATING → (BLOCKED | QUEUED) → RUNNING → (COMPLETED | PARTIAL | FAILED | CANCELLED)
@@ -143,8 +156,8 @@ hosting decision** — see roadmap M5). Job records persist first; workers pick 
 ## 7. Publication gate (deterministic)
 
 The gate is code, not a model. The Risk agent supplies evidence and
-recommendations; `server/reports/gate.js` (**planned**, M6) computes the verdict
-from explicit rules:
+recommendations; `server/reports/gate.js` (**built**, `GATE_RULES_VERSION` 1.0.0)
+computes the verdict from explicit rules, with thresholds in `GATE_THRESHOLDS`:
 
 | Verdict | Conditions |
 | --- | --- |
@@ -152,8 +165,9 @@ from explicit rules:
 | `PASS_WITH_WARNINGS` | Optional module failed/skipped · news coverage below threshold · small sentiment sample · quote stale within tolerance · single-provider quote (no cross-check) · partial timeframe coverage |
 | `PASS` | All mandatory checks satisfied, no warnings above threshold |
 
-Rules are unit-tested with a fixed evaluation dataset. A `BLOCKED` report may be
-stored for diagnostics but must never render as completed research.
+Rules are unit-tested (32 gate tests) and an internal evaluation failure fails
+closed as `BLOCKED`. A `BLOCKED` report may be stored for diagnostics but must
+never render as completed research.
 
 ## 8. Research depths
 
@@ -210,7 +224,8 @@ Until M8, caches remain in-process; nothing may depend on them for correctness.
 ## 11. Security
 
 Built: server-only secrets, `.env` hygiene, input validation, per-client rate
-limits, sanitised errors, dependency audit.
+limits, sanitised errors, dependency audit, runtime schema validation of AI
+output and agent envelopes.
 
 Required before public research features: authentication + per-user authorisation
 on jobs/reports; security headers (CSP, HSTS, frame options); request IDs and
