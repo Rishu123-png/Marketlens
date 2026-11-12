@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import reportHandler from "../api/report.js";
+import reportHandler from "../handlers/report.js";
 import { resetRateLimitsForTests } from "../lib/server/rateLimit.js";
 import { getUsageSnapshot, resetUsageForTests } from "../server/ai/usage.js";
 

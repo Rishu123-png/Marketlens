@@ -19,7 +19,7 @@ today.
 
 | Constraint | Number |
 | --- | --- |
-| Vercel function ceiling on the current plan | 60 s (`api/report.js`, `api/top-stocks.js` already at the cap) |
+| Vercel function ceiling on the current plan | 60 s for the single `api/index.js` function (Hobby) |
 | Agents per comprehensive job | 5 specialists + coordinator + 2 risk passes |
 | Worst case with one retry each | ≥ 6 × (provider latency + backoff), well past 60 s |
 | Failure mode | Function killed mid-job: no report, no record, wasted tokens |
@@ -176,3 +176,27 @@ costed after the fact. Retries are capped at one and never sleep longer than 5 s
 5. Optionally configure `S3_*` for report artefacts.
 6. Set `NEWS_*` and confirm official feeds before enabling them.
 7. Verify: create a Quick job, confirm gate verdict, then a Comprehensive job.
+
+## Vercel Hobby limits (why the deploy failed once)
+
+The project runs on the Hobby plan, which has two hard limits that are enforced
+at the deploy step, after a green local build:
+
+| Limit | Error Vercel returns | Fix applied |
+| --- | --- | --- |
+| Max 12 Serverless Functions per deployment (every file under `api/` counts) | `No more than 12 Serverless Functions can be added to a Deployment on the Hobby plan` | `api/` now holds one file, `api/index.js`; the 20 route handlers moved to `handlers/` and are dispatched through `server/http/router.js` |
+| `maxDuration` must be 1–60 | `Builder returned invalid maxDuration value for Serverless Function` | `vercel.json` declares `maxDuration: 60` for `api/index.js`; the old `api/worker.js` entry asked for 300 |
+
+Deployments from commit `526c94c` onward failed at `patchBuild` for these
+reasons; production kept serving the previous build. `tests/unit/http-router.test.js`
+and the function-budget assertion in `test/api-modules.test.js` fail locally if
+either limit is crossed again, so a green `npm test` now covers what the build
+alone did not.
+
+Consequences to keep in mind:
+
+- The worker must run outside Vercel (`npm run worker` on a long-running host).
+  `/api/worker` still exists for queue delivery, but it is capped at 60 s.
+- A slow `/api/analysis` request that exceeds 60 s will be killed by the
+  platform; the route is deterministic and normally finishes in a few seconds.
+- Long research runs stay in the worker, not in an HTTP request (O1).

@@ -6,7 +6,7 @@ import {
   resetJobStoreForTests,
   setJobStoreForTests
 } from "../../server/jobs/store.js";
-import jobDetailHandler from "../../api/jobs/[jobId].js";
+import jobDetailHandler from "../../handlers/jobs/[jobId].js";
 import { resetRateLimitsForTests } from "../../lib/server/rateLimit.js";
 import { JobRunner, drainQueue } from "../../server/jobs/worker.js";
 import {

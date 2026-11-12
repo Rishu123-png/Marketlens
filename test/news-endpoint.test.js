@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import newsHandler from "../api/news.js";
-import providerStatusHandler from "../api/provider-status.js";
+import newsHandler from "../handlers/news.js";
+import providerStatusHandler from "../handlers/provider-status.js";
 import { clearEvidenceCache } from "../server/news/service.js";
 import { resetRateLimitsForTests } from "../lib/server/rateLimit.js";
 

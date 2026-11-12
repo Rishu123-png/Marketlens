@@ -240,3 +240,9 @@ and analytics → global expansion → production validation.
 
 Rationale: agents are the least valuable layer if the evidence beneath them is
 unvalidated, and the most expensive to rebuild if the contracts change later.
+
+> **Update (2026-11-12):** route handlers moved from `api/` to `handlers/`, and
+> `api/` now contains a single function (`api/index.js`). The Vercel Hobby plan
+> allows 12 functions per deployment and rejects `maxDuration` above 60, and both
+> limits are enforced at the deploy step after a green build. See
+> [execution-deployment.md](./execution-deployment.md#vercel-hobby-limits-why-the-deploy-failed-once).

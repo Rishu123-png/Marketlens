@@ -48,7 +48,7 @@ test("the AI layer never decides publication", async () => {
 });
 
 test("the report endpoint delegates to the AI abstraction instead of calling Groq directly", async () => {
-  const source = stripComments(await read("api/report.js"));
+  const source = stripComments(await read("handlers/report.js"));
 
   assert.match(source, /runStructuredCompletion/);
   assert.doesNotMatch(source, /api\.groq\.com/);
@@ -73,4 +73,12 @@ test("the client bundle entry does not import validation or server modules", asy
 
   assert.doesNotMatch(source, /shared\/schemas/, "zod must stay out of the browser bundle");
   assert.doesNotMatch(source, /server\//);
+});
+
+test("route handlers delegate to the server layer instead of calling providers", async () => {
+  for (const file of ["handlers/report.js", "handlers/research.js", "handlers/worker.js", "handlers/coverage.js"]) {
+    const source = stripComments(await read(file));
+    assert.doesNotMatch(source, /api\.groq\.com/, `${file} must not call a provider directly`);
+    assert.doesNotMatch(source, /data\.sec\.gov/, `${file} must not call an evidence source directly`);
+  }
 });

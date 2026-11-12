@@ -1,31 +1,11 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { buildRouteTable, matchRoute } from "./api-router.js";
+import { dispatchApiRequest, normalizeApiPath } from "../server/http/router.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const apiDirectory = path.join(root, "api");
 const MAX_BODY_BYTES = 256 * 1024;
-
-let routeTablePromise = null;
-const moduleCache = new Map();
-
-function getRouteTable() {
-  routeTablePromise ??= buildRouteTable(apiDirectory);
-  return routeTablePromise;
-}
-
-function loadHandler(file) {
-  if (!moduleCache.has(file)) moduleCache.set(file, import(pathToFileURL(file)));
-  return moduleCache.get(file);
-}
-
-/** Test hook: forget discovered routes and cached handler modules. */
-export function resetApiRouter() {
-  routeTablePromise = null;
-  moduleCache.clear();
-}
 
 export async function loadLocalEnvironment() {
   for (const file of [".env.local", ".env"]) {
@@ -85,23 +65,17 @@ function jsonResponse(outgoing) {
     };
 }
 
+/**
+ * Local stand-in for the Vercel function. It uses the same static route table as
+ * `api/index.js`, so a route that works here resolves on Vercel too.
+ */
 export function createApiServer() {
   return createServer(async (incoming, outgoing) => {
     const url = new URL(incoming.url || "/", "http://localhost");
 
     try {
-      const table = await getRouteTable();
-      const match = matchRoute(table, url.pathname);
-
-      if (!match) {
-        jsonResponse(outgoing)(404)({ error: "API route not found." });
-        return;
-      }
-
-      const query = {
-        ...Object.fromEntries(url.searchParams.entries()),
-        ...match.params
-      };
+      const pathname = normalizeApiPath(url.pathname);
+      const query = Object.fromEntries(url.searchParams.entries());
       const body = ["GET", "HEAD"].includes(incoming.method) ? undefined : await readBody(incoming);
       const req = Object.assign(incoming, { query, body });
 
@@ -124,8 +98,7 @@ export function createApiServer() {
         }
       };
 
-      const module = await loadHandler(match.route.file);
-      await module.default(req, res);
+      await dispatchApiRequest(req, res, { pathname, query });
       if (!sent) res.status(204).json(null);
     } catch (error) {
       if (outgoing.headersSent) return outgoing.end();

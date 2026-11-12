@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import coverageHandler from "../api/coverage.js";
-import navHandler from "../api/nav.js";
-import officialDataHandler from "../api/official-data.js";
-import providerStatusHandler from "../api/provider-status.js";
+import coverageHandler from "../handlers/coverage.js";
+import navHandler from "../handlers/nav.js";
+import officialDataHandler from "../handlers/official-data.js";
+import providerStatusHandler from "../handlers/provider-status.js";
 import { resetRateLimitsForTests } from "../lib/server/rateLimit.js";
 
 function mockResponse() {
