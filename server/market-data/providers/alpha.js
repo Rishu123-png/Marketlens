@@ -1,4 +1,5 @@
 import { fetchJson } from "../http.js";
+import { recordProviderFailure } from "../providerPolicy.js";
 import { normalizeCandle, normalizeQuote } from "../normalize.js";
 import { resolveProviderSymbol } from "../../../shared/instruments/catalog.js";
 
@@ -15,6 +16,26 @@ function symbolCandidates(instrument) {
   if (instrument.country !== "IN") return [mapped];
   const other = instrument.exchange.includes("BSE") ? "NSE" : "BSE";
   return [...new Set([mapped, `${instrument.symbol}.${other}`])];
+}
+
+function payloadError(data) {
+  const message = data?.Note || data?.Information || data?.["Error Message"];
+  if (!message) return null;
+  const error = new Error(String(message).slice(0, 250));
+  const text = String(message).toLowerCase();
+  if (/rate limit|frequency|per day|daily|quota|credits/.test(text)) {
+    error.status = 429;
+    error.kind = "rate-limited";
+  } else if (/premium|not entitled|subscription/.test(text)) {
+    error.status = 403;
+    error.kind = "permission";
+  }
+  return error;
+}
+
+async function recordPayloadFailure(error) {
+  if (!error?.status) return;
+  await recordProviderFailure("alpha", error);
 }
 
 export const alphaProvider = {
@@ -49,12 +70,15 @@ export const alphaProvider = {
           "https://www.alphavantage.co/query" +
             "?function=GLOBAL_QUOTE" +
             `&symbol=${encodeURIComponent(symbol)}` +
-            `&apikey=${encodeURIComponent(apiKey)}`
+            `&apikey=${encodeURIComponent(apiKey)}`,
+          { providerId: "alpha" }
         );
 
-        if (data?.Note) throw new Error(data.Note);
-        if (data?.Information) throw new Error(data.Information);
-        if (data?.["Error Message"]) throw new Error(data["Error Message"]);
+        const failure = payloadError(data);
+        if (failure) {
+          await recordPayloadFailure(failure);
+          throw failure;
+        }
 
         const quote = data?.["Global Quote"];
 
@@ -70,6 +94,9 @@ export const alphaProvider = {
         lastError = new Error("Alpha Vantage returned no quote.");
       } catch (error) {
         lastError = error instanceof Error ? error : new Error("Alpha Vantage failed.");
+        // A quota/permission failure applies to every candidate; stop before
+        // burning a second request on the other exchange suffix.
+        if ([403, 429].includes(Number(error?.status))) break;
       }
     }
 
@@ -86,42 +113,55 @@ export const alphaProvider = {
       throw new Error("Alpha Vantage only supports 1day and 1week candles here.");
     }
 
-    const symbol = resolveProviderSymbol(instrument, "alpha");
-    if (!symbol) throw new Error("Alpha Vantage has no mapping for this instrument.");
+    const candidates = symbolCandidates(instrument);
+    if (!candidates.length) throw new Error("Alpha Vantage has no mapping for this instrument.");
 
-    const data = await fetchJson(
-      "https://www.alphavantage.co/query" +
-        `?function=${series}` +
-        `&symbol=${encodeURIComponent(symbol)}` +
-        `&outputsize=${limit > 100 ? "full" : "compact"}` +
-        `&apikey=${encodeURIComponent(apiKey)}`,
-      { timeoutMs: 12_000 }
-    );
+    let lastError = null;
+    for (const symbol of candidates) {
+      try {
+        const data = await fetchJson(
+          "https://www.alphavantage.co/query" +
+            `?function=${series}` +
+            `&symbol=${encodeURIComponent(symbol)}` +
+            `&outputsize=${limit > 100 ? "full" : "compact"}` +
+            `&apikey=${encodeURIComponent(apiKey)}`,
+          { timeoutMs: 12_000, providerId: "alpha" }
+        );
 
-    if (data?.Note) throw new Error(data.Note);
-    if (data?.Information) throw new Error(data.Information);
-    if (data?.["Error Message"]) throw new Error(data["Error Message"]);
+        const failure = payloadError(data);
+        if (failure) {
+          await recordPayloadFailure(failure);
+          throw failure;
+        }
 
-    const key = Object.keys(data || {}).find((entry) => entry.toLowerCase().includes("time series"));
-    if (!key) throw new Error("Alpha Vantage returned no candles.");
+        const key = Object.keys(data || {}).find((entry) => entry.toLowerCase().includes("time series"));
+        if (!key) throw new Error("Alpha Vantage returned no candles.");
 
-    const candles = Object.entries(data[key])
-      .map(([date, row]) =>
-        normalizeCandle(
-          {
-            date,
-            open: row["1. open"],
-            high: row["2. high"],
-            low: row["3. low"],
-            close: row["4. close"],
-            volume: row["5. volume"]
-          },
-          SOURCE
-        )
-      )
-      .filter(Boolean)
-      .reverse();
+        const candles = Object.entries(data[key])
+          .map(([date, row]) =>
+            normalizeCandle(
+              {
+                date,
+                open: row["1. open"],
+                high: row["2. high"],
+                low: row["3. low"],
+                close: row["4. close"],
+                volume: row["5. volume"]
+              },
+              SOURCE
+            )
+          )
+          .filter(Boolean)
+          .reverse();
 
-    return limit ? candles.slice(-limit) : candles;
+        if (!candles.length) throw new Error("Alpha Vantage returned no usable candles.");
+        return limit ? candles.slice(-limit) : candles;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error("Alpha Vantage failed.");
+        if ([403, 429].includes(Number(error?.status))) break;
+      }
+    }
+
+    throw lastError ?? new Error("Alpha Vantage returned no candles.");
   }
 };

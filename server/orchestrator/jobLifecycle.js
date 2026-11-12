@@ -15,8 +15,8 @@ export const JOB_TRANSITIONS = Object.freeze({
   VALIDATING: Object.freeze(["QUEUED", "BLOCKED", "FAILED", "CANCELLED"]),
   QUEUED: Object.freeze(["RUNNING", "CANCELLED", "FAILED"]),
   RUNNING: Object.freeze(["COMPLETED", "PARTIAL", "BLOCKED", "FAILED", "CANCELLED"]),
-  // Terminal states. Partial research is a finished artifact, not a step that
-  // automatically becomes complete.
+  // Terminal for the normal lifecycle. An explicit owner retry is the only
+  // way out of FAILED/BLOCKED; see retryJob() below.
   PARTIAL: Object.freeze([]),
   COMPLETED: Object.freeze([]),
   BLOCKED: Object.freeze([]),
@@ -35,9 +35,10 @@ export const AGENT_TRANSITIONS = Object.freeze({
   BLOCKED: Object.freeze([])
 });
 
-export const TERMINAL_JOB_STATUSES = Object.freeze(
-  JOB_STATUSES.filter((status) => JOB_TRANSITIONS[status].length === 0)
-);
+export const TERMINAL_JOB_STATUSES = Object.freeze(["PARTIAL", "COMPLETED", "BLOCKED", "FAILED", "CANCELLED"]);
+
+/** The only statuses an owner may explicitly retry. */
+export const RETRYABLE_JOB_STATUSES = Object.freeze(["FAILED", "BLOCKED"]);
 
 export class JobTransitionError extends Error {
   constructor(from, to, message) {
@@ -120,7 +121,7 @@ export function createResearchJob({
  * gate, and may only become COMPLETED/PARTIAL with a non-blocking gate. A gate
  * is mandatory for those three outcomes so the verdict can never be implied.
  */
-export function transitionJob(job, nextStatus, { at = new Date().toISOString(), reason = null, gate } = {}) {
+export function transitionJob(job, nextStatus, { at = new Date().toISOString(), reason = null, gate, resetGate = false } = {}) {
   assertJobTransition(job.status, nextStatus);
 
   const requiresGate = ["BLOCKED", "COMPLETED", "PARTIAL"].includes(nextStatus);
@@ -140,12 +141,33 @@ export function transitionJob(job, nextStatus, { at = new Date().toISOString(), 
   const updated = {
     ...job,
     status: nextStatus,
-    gate: gate ?? job.gate ?? null,
+    gate: gate ?? (resetGate ? null : job.gate ?? null),
     updatedAt: at,
     history: [...(job.history || []), { from: job.status, to: nextStatus, at, reason }]
   };
 
   return researchJobSchema.parse(updated);
+}
+
+/**
+ * Explicit retry of a failed or blocked job. This is deliberately separate from
+ * `transitionJob`: generic transitions must never resurrect a terminal job.
+ */
+export function retryJob(job, { at = new Date().toISOString(), reason = "retry requested by owner" } = {}) {
+  if (!RETRYABLE_JOB_STATUSES.includes(job.status)) {
+    throw new JobTransitionError(
+      job.status,
+      "QUEUED",
+      `Only FAILED or BLOCKED jobs can be retried; this job is ${job.status}.`
+    );
+  }
+  return researchJobSchema.parse({
+    ...job,
+    status: "QUEUED",
+    gate: null,
+    updatedAt: at,
+    history: [...(job.history || []), { from: job.status, to: "QUEUED", at, reason }]
+  });
 }
 
 /** Convenience: derive the outcome from the gate verdict. */

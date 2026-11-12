@@ -31,7 +31,11 @@ export function normalizeQuote({ item = {}, instrument, source, provider, provid
     price,
     change: parseNumber(item.change ?? item["09. change"]),
     changePercent: parseNumber(
-      item.changesPercentage ?? item.change_percent ?? item.percent_change ?? item["10. change percent"]
+      item.changesPercentage ??
+        item.changePercentage ??
+        item.change_percent ??
+        item.percent_change ??
+        item["10. change percent"]
     ),
     open: parseNumber(item.open ?? item["02. open"]),
     previousClose: parseNumber(item.previousClose ?? item.previous_close ?? item["08. previous close"]),

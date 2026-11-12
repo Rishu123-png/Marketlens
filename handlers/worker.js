@@ -15,6 +15,7 @@ import { resolveJobStore } from "../server/jobs/store.js";
 import { timingSafeEqual } from "node:crypto";
 import { qstashKeys, verifyQstashSignature } from "../server/jobs/qstashSignature.js";
 import { JobRunner, drainQueue } from "../server/jobs/worker.js";
+import { isTerminalJobStatus } from "../server/orchestrator/jobLifecycle.js";
 
 export default async function handler(req, res) {
   if (req.method && req.method !== "POST") {
@@ -30,8 +31,16 @@ export default async function handler(req, res) {
   let authMethod = null;
 
   if (signatureHeader && signingKeys.length) {
-    const rawBody = typeof req.body === "string" ? req.body : null;
-    const verdict = verifyQstashSignature({ signature: String(signatureHeader), rawBody });
+    // Vercel parses JSON bodies before the handler runs. The signature binds the
+    // exact raw bytes, so try the runtime's raw body when present and the
+    // canonical JSON serialization otherwise. Verification still fails closed if
+    // neither reproduces the signed digest.
+    const candidates = rawBodyCandidates(req);
+    let verdict = { ok: false, status: "body-unavailable", reason: "Raw request body is not available." };
+    for (const rawBody of candidates) {
+      verdict = verifyQstashSignature({ signature: String(signatureHeader), rawBody });
+      if (verdict.ok) break;
+    }
     if (!verdict.ok) {
       return res.status(401).json({
         error: "Unauthorized QStash delivery.",
@@ -74,6 +83,29 @@ export default async function handler(req, res) {
 
   if (!(await store.has(jobId))) return res.status(404).json({ error: "Research job not found.", jobId });
 
+  // QStash retries and at-least-once delivery must not re-run completed work or
+  // create a second report. A duplicate delivery acknowledges with the current
+  // state instead.
+  const snapshot = await store.get(jobId);
+  if (isTerminalJobStatus(snapshot.status)) {
+    return res.status(200).json({
+      jobId,
+      authMethod,
+      status: snapshot.status,
+      skipped: true,
+      reason: "job already reached a terminal status"
+    });
+  }
+  if (snapshot.status === "RUNNING") {
+    return res.status(200).json({
+      jobId,
+      authMethod,
+      status: snapshot.status,
+      skipped: true,
+      reason: "another delivery already claimed this job"
+    });
+  }
+
   const runner = new JobRunner({ store });
   const outcome = await runner.process(jobId);
 
@@ -84,6 +116,21 @@ export default async function handler(req, res) {
     gateVerdict: outcome.result?.gate?.verdict ?? null,
     error: outcome.error ? String(outcome.error.message || outcome.error) : null
   });
+}
+
+function rawBodyCandidates(req) {
+  if (Buffer.isBuffer(req?.rawBody)) return [req.rawBody.toString("utf8")];
+  if (typeof req?.rawBody === "string") return [req.rawBody];
+  if (Buffer.isBuffer(req?.body)) return [req.body.toString("utf8")];
+  if (typeof req?.body === "string") return [req.body];
+  if (req?.body && typeof req.body === "object") {
+    try {
+      return [JSON.stringify(req.body)];
+    } catch {
+      return [];
+    }
+  }
+  return [];
 }
 
 function safeParse(value) {

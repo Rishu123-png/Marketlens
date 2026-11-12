@@ -10,7 +10,13 @@
  * Migration `001_init.sql` must be applied first.
  */
 
-import { createResearchJob, applyGate, transitionJob, isTerminalJobStatus } from "../orchestrator/jobLifecycle.js";
+import {
+  createResearchJob,
+  applyGate,
+  transitionJob,
+  isTerminalJobStatus,
+  retryJob
+} from "../orchestrator/jobLifecycle.js";
 import { REQUIRED_MODULES_BY_DEPTH } from "../../shared/schemas/research.js";
 import { JobNotFoundError } from "../jobs/store.js";
 import { saveReport, getReportForJob } from "./reports.js";
@@ -161,7 +167,12 @@ export function createPgJobStore(client, { now = () => new Date().toISOString() 
     async transition(jobId, status, options = {}) {
       const job = await loadJob(jobId);
       const at = options.at ?? now();
-      const updated = transitionJob(job, status, { at, reason: options.reason ?? null, gate: options.gate });
+      const updated = transitionJob(job, status, {
+        at,
+        reason: options.reason ?? null,
+        gate: options.gate,
+        resetGate: options.resetGate === true
+      });
 
       await client.query("BEGIN");
       try {
@@ -209,6 +220,9 @@ export function createPgJobStore(client, { now = () => new Date().toISOString() 
 
     async complete(jobId, gate, { partial = false, reason = null } = {}) {
       const job = await loadJob(jobId);
+      // QStash can redeliver a completed job. Returning the terminal job keeps
+      // completion idempotent instead of throwing an illegal transition.
+      if (isTerminalJobStatus(job.status)) return job;
       const updated = applyGate(job, gate, { at: now(), reason, partial });
 
       await client.query("BEGIN");
@@ -235,13 +249,40 @@ export function createPgJobStore(client, { now = () => new Date().toISOString() 
       return this.transition(jobId, "CANCELLED", { reason: "cancelled by operator" });
     },
 
+    async retry(jobId, { reason = "retry requested by owner" } = {}) {
+      const job = await loadJob(jobId);
+      const at = now();
+      const updated = retryJob(job, { at, reason });
+
+      await client.query("BEGIN");
+      try {
+        await persistTransition(client, updated, job.status, { at, reason });
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      }
+      return updated;
+    },
+
     async saveAgentRuns(jobId, runs) {
       for (const run of Object.values(runs)) {
         await client.query(
           `INSERT INTO agent_runs
              (job_id, agent, status, provider, model, prompt_version, schema_version,
               started_at, completed_at, duration_ms, error, payload)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+           ON CONFLICT (job_id, agent) DO UPDATE SET
+             status = EXCLUDED.status,
+             provider = EXCLUDED.provider,
+             model = EXCLUDED.model,
+             prompt_version = EXCLUDED.prompt_version,
+             schema_version = EXCLUDED.schema_version,
+             started_at = EXCLUDED.started_at,
+             completed_at = EXCLUDED.completed_at,
+             duration_ms = EXCLUDED.duration_ms,
+             error = EXCLUDED.error,
+             payload = EXCLUDED.payload`,
           [
             jobId,
             run.agent,
@@ -273,6 +314,30 @@ export function createPgJobStore(client, { now = () => new Date().toISOString() 
         await saveReport(client, { report: result.report, versions: result.versions ?? null });
       }
 
+      await client.query(
+        `INSERT INTO research_job_results
+           (job_id, status, gate, versions, data_warnings, evidence, error, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         ON CONFLICT (job_id) DO UPDATE SET
+           status = EXCLUDED.status,
+           gate = EXCLUDED.gate,
+           versions = EXCLUDED.versions,
+           data_warnings = EXCLUDED.data_warnings,
+           evidence = EXCLUDED.evidence,
+           error = EXCLUDED.error,
+           updated_at = EXCLUDED.updated_at`,
+        [
+          jobId,
+          result?.status ?? null,
+          result?.gate ? JSON.stringify(result.gate) : null,
+          result?.versions ? JSON.stringify(result.versions) : null,
+          JSON.stringify(result?.dataWarnings ?? []),
+          result?.evidence ? JSON.stringify(result.evidence) : null,
+          result?.error ?? null,
+          now()
+        ]
+      );
+
       const evidenceItems = result?.evidenceForStorage?.items ?? [];
 
       for (const item of evidenceItems) {
@@ -302,7 +367,24 @@ export function createPgJobStore(client, { now = () => new Date().toISOString() 
 
     async getResult(jobId) {
       const report = await getReportForJob(client, jobId);
-      return report ? { report } : null;
+      const { rows } = await client.query(
+        `SELECT status, gate, versions, data_warnings, evidence, error, updated_at
+           FROM research_job_results WHERE job_id = $1`,
+        [jobId]
+      );
+      if (!report && !rows.length) return null;
+      const row = rows[0] ?? null;
+      return {
+        report: report ?? null,
+        status: row?.status ?? null,
+        gate: row?.gate ?? null,
+        versions: row?.versions ?? null,
+        dataWarnings: row?.data_warnings ?? [],
+        evidence: row?.evidence ?? null,
+        error: row?.error ?? null,
+        updatedAt:
+          row?.updated_at instanceof Date ? row.updated_at.toISOString() : row?.updated_at ?? null
+      };
     }
   };
 }

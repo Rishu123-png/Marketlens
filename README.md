@@ -33,9 +33,13 @@ Nine workspaces ship today:
   It never displays credential values.
 
 Every market screen states its coverage. The instrument matrix
-(`/api/instruments?coverage=1`) distinguishes catalogued, provider-mapped,
-quote-capable and actually verified; free provider tiers are labelled delayed, not
-real-time. Missing data is never silently omitted or filled.
+(`/api/instruments?coverage=1`) reports six separate counts: catalogued,
+quote-supported, quote-enabled, verified latest quotes, candle-supported and
+verified historical candles, plus the count unavailable from every configured
+provider. “Supported” is an adapter/mapping claim; “verified” requires a recent,
+identity-checked response. Free provider tiers are labelled delayed, not real-time.
+Missing data is never silently omitted or filled. Provider quota/circuit state and
+explicit failure reasons are in `/api/diagnostics`.
 
 ## Quick start
 
@@ -69,7 +73,11 @@ GET /api/jobs/:id   → poll status, agent runs, gate, report, evidence
 
 Multi-agent work never runs inside a web request (decision O1). Without
 `QSTASH_TOKEN`/`WORKER_URL` the queue is process-local: run `npm run worker` in the
-same workspace. Production needs QStash and a worker deployment.
+same workspace. Production needs QStash, a worker deployment, and either QStash
+signing keys or `WORKER_SECRET`. With `DATABASE_URL`, jobs, agent runs, reports and
+the result envelope are durable; without it the queue/store is process-local and
+that limitation is reported, not hidden. An owner can explicitly retry a
+`FAILED`/`BLOCKED` job; retries are never automatic.
 
 ## API
 
@@ -90,7 +98,7 @@ Same-origin `/api/*`, rate limited, no `/v1` prefix. Full reference:
 | `GET /api/nav` | Official AMFI end-of-day NAV (`isin` or `schemeCode`) |
 | `GET /api/official-data` | Optional data.gov.in open datasets (requires `DATA_GOV_IN_API_KEY`) |
 | `POST /api/report` | Single-shot AI commentary on a verified quote |
-| `POST /api/research`, `GET /api/jobs`, `GET /api/jobs/[jobId]` | Durable research jobs |
+| `POST /api/research`, `GET /api/jobs`, `GET /api/jobs/[jobId]`, `POST /api/jobs/[jobId]` | Durable research jobs; POST explicitly retries a FAILED/BLOCKED job |
 | `POST /api/worker` | Queue delivery entry point (`WORKER_SECRET`) |
 
 ### Deployment shape (Vercel Hobby)

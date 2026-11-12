@@ -128,7 +128,7 @@ POST /api/research
   ├─ create job (CREATED → VALIDATING → QUEUED)
   └─ publish { jobId } to the queue
         ├─ memory queue  → same-process worker (`npm run worker`)
-        └─ QStash        → WORKER_URL (POST /api/worker, x-worker-secret)
+        └─ QStash        → WORKER_URL (POST /api/worker, Upstash-Signature)
 worker (JobRunner)
   ├─ claim QUEUED → RUNNING
   ├─ run orchestrator (data → agents → gate → report)
@@ -143,19 +143,28 @@ Configuration:
 | --- | --- |
 | `QSTASH_TOKEN` | Publish jobs to QStash |
 | `WORKER_URL` | Public worker endpoint that receives the job id |
-| `WORKER_SECRET` | Shared secret required by `/api/worker` |
+| `QSTASH_CURRENT_SIGNING_KEY` / `QSTASH_NEXT_SIGNING_KEY` | Preferred `/api/worker` authentication; verifies the signed body digest |
+| `WORKER_SECRET` | Shared-secret fallback for `/api/worker` when no signing key is configured |
 | `WORKER_POLL_MS` | Poll interval for `npm run worker` |
 | `DATABASE_URL` | Durable, shared job store (otherwise memory) |
 
 Limits and gaps:
 
-- The worker route sets `maxDuration: 300`. A comprehensive job with slow providers
-  can approach that; the queue should be configured with a retry policy.
-- QStash request-signature verification is not implemented; the shared secret is the
-  current control.
+- The single Vercel function has `maxDuration: 60`. A comprehensive job with slow
+  providers can exceed that; QStash delivery to an independent worker is the durable
+  path, and a summary can exceed the API request budget.
+- QStash request-signature verification is implemented. Signing keys are preferred;
+  `WORKER_SECRET` is the fallback. Because Vercel parses JSON bodies, verification
+  tries `req.rawBody`/string bodies first and then the canonical JSON serialization;
+  it fails closed if neither matches the signed digest.
+- QStash is at-least-once. The worker acknowledges terminal or already-running jobs
+  without re-running them, and agent-run writes are idempotent (`ON CONFLICT`).
+- Job retry is explicit and owner-scoped (`POST /api/jobs/:jobId`), only from
+  `FAILED`/`BLOCKED`; there is no automatic job-level retry loop.
 - Without `DATABASE_URL`, the memory store is process-local: the API cannot see a job
-  created in another instance. This is stated in API responses (`note`) and in
-  `provider-status`.
+  created in another instance. Reports and the result envelope are persisted in
+  PostgreSQL when it is configured; otherwise a reload in a different instance loses
+  them. This is stated in API responses (`note`) and in `provider-status`.
 
 ## Cost model (unchanged, restated)
 

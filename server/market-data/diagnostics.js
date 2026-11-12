@@ -9,7 +9,8 @@ import { getInstrument, resolveProviderSymbol } from "../../shared/instruments/c
 import { buildInstrumentMatrix, instrumentAvailability } from "../instruments/service.js";
 import { buildCoverage } from "../evidence/coverage.js";
 import { observationSnapshot, marketRequestSnapshot } from "./observations.js";
-import { PROVIDER_CAPABILITIES, PROVIDER_IDS, getProviders } from "./providers/index.js";
+import { PROVIDER_CAPABILITIES, PROVIDER_IDS, getProviderOrder, getProviders } from "./providers/index.js";
+import { providerPolicySnapshot } from "./providerPolicy.js";
 
 const PROVIDER_KEYS = {
   fmp: "FMP_API_KEY",
@@ -28,6 +29,7 @@ function providerStatuses(env = process.env) {
         envName: PROVIDER_KEYS[provider.id] ?? null,
         configured: Boolean(env[PROVIDER_KEYS[provider.id]]),
         capabilities: PROVIDER_CAPABILITIES[provider.id] ?? null,
+        intervals: PROVIDER_CAPABILITIES[provider.id] ?? null,
         verification: env[PROVIDER_KEYS[provider.id]] ? "configured-unverified" : "not-configured",
         liveVerified: false
       }
@@ -52,7 +54,17 @@ function instrumentMappings() {
           }
         ])
       );
-      return [symbol, { found: true, id: instrument.id, exchange: instrument.exchange, currency: instrument.currency, providers }];
+      return [
+        symbol,
+        {
+          found: true,
+          id: instrument.id,
+          exchange: instrument.exchange,
+          currency: instrument.currency,
+          currencyIsInstrumentMetadataOnly: true,
+          providers
+        }
+      ];
     })
   );
 }
@@ -69,8 +81,13 @@ export function buildMarketDiagnostics({ env = process.env, now = () => new Date
     requestSucceeded: entries.filter((entry) => entry.attempted && entry.httpStatus === 200).length,
     notSent: entries.filter((entry) => !entry.attempted).length,
     cacheHits: entries.filter((entry) => entry.cacheHit).length,
-    verifiedQuoteSuccesses: entries.filter((entry) => entry.kind === "quote" && entry.httpStatus === 200).length,
-    candleSuccesses: entries.filter((entry) => entry.kind === "candles" && entry.httpStatus === 200).length,
+    // HTTP success means the provider answered. Verified means the response
+    // passed identity/schema checks and was stored as an observation. They are
+    // deliberately separate numbers.
+    quoteHttpSuccesses: entries.filter((entry) => entry.kind === "quote" && entry.httpStatus === 200).length,
+    candleHttpSuccesses: entries.filter((entry) => entry.kind === "candles" && entry.httpStatus === 200).length,
+    verifiedQuoteSuccesses: observed.quotes.withQuotes,
+    candleSuccesses: observed.candles.withCandles,
     failures: entries.filter((entry) => entry.error).length,
     realtimeClaims: 0
   };
@@ -80,7 +97,8 @@ export function buildMarketDiagnostics({ env = process.env, now = () => new Date
     separation:
       "Market-data connectivity is independent of Groq connectivity. Quotes and candles never use Groq, and AI readiness never implies price coverage.",
     providers: providerStatuses(env),
-    providerOrder: PROVIDER_IDS,
+    providerOrder: getProviderOrder(),
+    providerPolicy: providerPolicySnapshot(),
     instrumentCoverage: matrix.coverage,
     freshness: matrix.freshness,
     byExchange: matrix.byExchange,
@@ -94,6 +112,8 @@ export function buildMarketDiagnostics({ env = process.env, now = () => new Date
       requestSucceeded: "The provider returned a 2xx response.",
       dataVerified: "The response passed identity and schema validation and is shown as a quote/candle.",
       cached: "Served from the in-process cache; not a fresh provider call.",
+      quoteHttpSuccesses: "A provider returned HTTP 2xx. Identity/schema validation may still reject it.",
+      verifiedQuoteSuccesses: "An identity-checked quote was observed in this instance.",
       delayed: "Provider tier is delayed or end-of-day; no real-time entitlement is claimed.",
       unavailable: "No configured provider returned usable data; nothing is fabricated."
     },

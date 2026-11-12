@@ -13,9 +13,30 @@ export const PROVIDER_IDS = Object.freeze(Object.keys(PROVIDERS));
 
 /** Declared capabilities. Declared, not live-verified. */
 export const PROVIDER_CAPABILITIES = Object.freeze({
-  fmp: { quotes: true, candles: false, indices: true },
-  twelve: { quotes: true, candles: true, indices: "mapped-only" },
-  alpha: { quotes: true, candles: true, indices: "mapped-only" }
+  fmp: {
+    quotes: true,
+    candles: true,
+    intraday: true,
+    indices: true,
+    historicalIntervals: ["1day"],
+    intradayIntervals: ["1min", "5min", "15min", "30min", "1h", "4h"]
+  },
+  twelve: {
+    quotes: true,
+    candles: true,
+    intraday: true,
+    indices: "mapped-only",
+    historicalIntervals: ["1day", "1week", "1month"],
+    intradayIntervals: ["1min", "5min", "15min", "30min", "1h", "4h"]
+  },
+  alpha: {
+    quotes: true,
+    candles: true,
+    intraday: false,
+    indices: "mapped-only",
+    historicalIntervals: ["1day", "1week"],
+    intradayIntervals: []
+  }
 });
 
 /**

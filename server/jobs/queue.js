@@ -59,6 +59,16 @@ export async function publishToQStash(payload, options = {}) {
   if (!token) throw new QueueConfigurationError("QSTASH_TOKEN is not configured.");
   if (!workerUrl) throw new QueueConfigurationError("WORKER_URL is not configured.");
 
+  let parsedWorkerUrl;
+  try {
+    parsedWorkerUrl = new URL(workerUrl);
+  } catch {
+    throw new QueueConfigurationError("WORKER_URL is not a valid absolute URL.");
+  }
+  if (parsedWorkerUrl.protocol !== "https:") {
+    throw new QueueConfigurationError("WORKER_URL must use HTTPS so the job id and credentials are not sent in clear text.");
+  }
+
   const response = await fetchImpl(`${QSTASH_PUBLISH_URL}/${encodeURIComponent(workerUrl)}`, {
     method: "POST",
     headers: {
@@ -91,7 +101,10 @@ export function createQStashQueue(options = {}) {
   return {
     id: "qstash",
     async enqueue(payload) {
-      return publishToQStash(payload, { ...options, deduplicationId: payload.jobId });
+      return publishToQStash(payload, {
+        ...options,
+        deduplicationId: payload.deduplicationId ?? payload.jobId
+      });
     },
     async dequeue() {
       throw new QueueConfigurationError("QStash delivers to the worker over HTTP; polling is not applicable.");
@@ -112,6 +125,13 @@ export function getQueue() {
   return process.env.QSTASH_TOKEN && process.env.WORKER_URL ? createQStashQueue() : sharedMemoryQueue;
 }
 
+/** Worker authentication mode implied by the current environment. */
+export function workerAuthMode(env = process.env) {
+  if (env.QSTASH_CURRENT_SIGNING_KEY || env.QSTASH_NEXT_SIGNING_KEY) return "qstash-signature";
+  if (env.WORKER_SECRET) return "worker-secret";
+  return "disabled";
+}
+
 export function resetQueueForTests() {
   sharedMemoryQueue = createMemoryQueue();
   return sharedMemoryQueue;
@@ -124,9 +144,26 @@ export function queueStatus(env = process.env) {
     qstash: {
       configured: qstash,
       verification: qstash ? "configured-unverified" : "not-configured",
+      workerUrlHttps: (() => {
+        try {
+          return new URL(env.WORKER_URL).protocol === "https:";
+        } catch {
+          return false;
+        }
+      })(),
       notes: qstash
-        ? "Requires the worker to be deployed and reachable at WORKER_URL."
+        ? "Requires the worker to be deployed, HTTPS-reachable at WORKER_URL, and to accept the configured authentication."
         : "Set QSTASH_TOKEN and WORKER_URL to deliver jobs to an independent worker."
+    },
+    workerAuth: {
+      mode: workerAuthMode(env),
+      signatureVerification: env.QSTASH_CURRENT_SIGNING_KEY
+        ? "configured-unverified"
+        : "not-configured",
+      note:
+        workerAuthMode(env) === "disabled"
+          ? "The worker endpoint refuses all deliveries until WORKER_SECRET or a QStash signing key is configured."
+          : "The worker endpoint verifies QStash signatures when a signing key is configured, otherwise it requires WORKER_SECRET."
     },
     memory: {
       scope: "process-local",

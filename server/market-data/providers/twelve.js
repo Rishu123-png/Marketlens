@@ -16,6 +16,10 @@ export const twelveProvider = {
     return resolveProviderSymbol(instrument, "twelve") !== null;
   },
 
+  supportsCandleInterval(interval) {
+    return ["1min", "5min", "15min", "30min", "1h", "4h", "1day", "1week", "1month"].includes(interval);
+  },
+
   async fetchQuote(instrument) {
     const apiKey = process.env.TWELVE_DATA_API_KEY;
     if (!apiKey) throw new Error("Twelve Data API key is not configured.");
@@ -25,7 +29,8 @@ export const twelveProvider = {
 
     const data = await fetchJson(
       "https://api.twelvedata.com/quote" +
-        `?symbol=${encodeURIComponent(symbol)}&apikey=${encodeURIComponent(apiKey)}`
+        `?symbol=${encodeURIComponent(symbol)}&apikey=${encodeURIComponent(apiKey)}`,
+      { providerId: "twelve" }
     );
 
     if (data?.code || data?.message || data?.status === "error") {
@@ -61,7 +66,7 @@ export const twelveProvider = {
         `&interval=${encodeURIComponent(interval)}` +
         `&outputsize=${encodeURIComponent(String(Math.min(Math.max(limit, 10), 5000)))}` +
         `&apikey=${encodeURIComponent(apiKey)}`,
-      { timeoutMs: 12_000 }
+      { timeoutMs: 12_000, providerId: "twelve" }
     );
 
     if (data?.status === "error" || data?.code) {

@@ -6,6 +6,8 @@
  * array (no keys, no headers).
  */
 
+import { recordProviderFailure, recordProviderSuccess } from "./providerPolicy.js";
+
 const DEFAULT_TIMEOUT_MS = 8_000;
 
 /** Provider bodies can echo request parameters; keep credential values out of errors. */
@@ -23,9 +25,10 @@ function redactUrlSecrets(text, url) {
   return safe.replace(/(apikey|api_key|token|secret|key)=([^&\s"']+)/gi, "$1=[redacted]");
 }
 
-export async function fetchJson(url, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+export async function fetchJson(url, { timeoutMs = DEFAULT_TIMEOUT_MS, providerId = null } = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let recorded = false;
 
   try {
     const response = await fetch(url, { signal: controller.signal });
@@ -52,15 +55,34 @@ export async function fetchJson(url, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
       // Status is operational metadata, not a secret. Callers embed only the
       // message and status in API `details[]` and diagnostics.
       error.status = response.status;
+      error.kind = response.status === 429 ? "rate-limited" : response.status === 401 || response.status === 403 ? "permission" : "upstream";
+      error.retryable = response.status >= 500;
+      error.headers = response.headers;
       const retryAfter = Number(response.headers?.get?.("retry-after"));
       if (Number.isFinite(retryAfter) && retryAfter >= 0) error.retryAfterSeconds = retryAfter;
+      if (providerId) {
+        recorded = true;
+        await recordProviderFailure(providerId, error, { headers: response.headers });
+      }
       throw error;
     }
 
+    if (providerId) {
+      recorded = true;
+      await recordProviderSuccess(providerId, { headers: response.headers });
+    }
     return data;
   } catch (error) {
     if (error?.name === "AbortError") {
-      throw new Error("Provider request timed out.");
+      const timeoutError = new Error("Provider request timed out.");
+      timeoutError.kind = "timeout";
+      timeoutError.retryable = false;
+      if (providerId && !recorded) await recordProviderFailure(providerId, timeoutError);
+      throw timeoutError;
+    }
+    if (providerId && !recorded && !error?.status) {
+      // Network/DNS failure. No URL or credential is written to policy state.
+      await recordProviderFailure(providerId, error);
     }
     throw error;
   } finally {

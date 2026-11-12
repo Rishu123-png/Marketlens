@@ -14,6 +14,8 @@ import { getInstrument, instrumentFromSymbol } from "../../shared/instruments/ca
 import { candleSchema } from "../../shared/schemas/candle.js";
 import { getProviderOrder, getProviders } from "./providers/index.js";
 import { dataFreshness, recordCandleObservation, recordMarketRequest } from "./observations.js";
+import { checkProvider } from "./providerPolicy.js";
+import { candleCacheTtlMs } from "./cachePolicy.js";
 
 export const INTERVALS = Object.freeze(["1min", "5min", "15min", "30min", "1h", "4h", "1day", "1week", "1month"]);
 
@@ -57,10 +59,11 @@ export function aggregateFourHour(candles) {
 
   return [...buckets.values()].sort((a, b) => a.time.localeCompare(b.time));
 }
-export const DEFAULT_CACHE_TTL_MS = 5 * 60 * 1000;
+export const DEFAULT_CACHE_TTL_MS = 5 * 60 * 1000; // retained for callers/tests
 export const MAX_LIMIT = 1000;
 
 const cache = new Map();
+const inflight = new Map();
 
 export function clearCandleCache() {
   cache.clear();
@@ -82,10 +85,29 @@ function badRequest(message) {
 }
 
 /**
+ * Deduplicate concurrent identical candle fetches. Only the same instrument,
+ * interval and limit share a request, so one caller cannot receive a shorter
+ * series than it asked for.
+ */
+export async function getCandles(target, options = {}) {
+  if (options.cache === false) return getCandlesUncached(target, options);
+  const instrument = resolveInstrument(target, options.exchange);
+  if (!instrument?.symbol) return getCandlesUncached(target, options);
+  const interval = String(options.interval || "1day");
+  const limit = Math.min(MAX_LIMIT, Math.max(10, Number(options.limit) || 365));
+  const providerKey = options.providers?.map((provider) => provider.id).join(",") || getProviderOrder().join(",");
+  const key = `${instrument.id}|${interval}|${limit}|${providerKey}`;
+  if (inflight.has(key)) return inflight.get(key);
+  const promise = getCandlesUncached(target, options).finally(() => inflight.delete(key));
+  inflight.set(key, promise);
+  return promise;
+}
+
+/**
  * @param {object|string} target Instrument object, instrument id, or symbol.
  * @param {{exchange?:string, interval?:string, limit?:number, cache?:boolean, cacheTtlMs?:number, providers?:object[]}} [options]
  */
-export async function getCandles(target, options = {}) {
+async function getCandlesUncached(target, options = {}) {
   const interval = String(options.interval || "1day");
   if (!INTERVALS.includes(interval)) {
     throw badRequest(`Unsupported interval. Supported: ${INTERVALS.join(", ")}`);
@@ -99,7 +121,7 @@ export async function getCandles(target, options = {}) {
 
   if (options.cache !== false) {
     const hit = cache.get(cacheKey);
-    if (hit && Date.now() - hit.createdAt < (options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS)) {
+    if (hit && Date.now() - hit.createdAt < (options.cacheTtlMs ?? candleCacheTtlMs(interval))) {
       recordMarketRequest({
         kind: "candles",
         instrumentId: instrument.id,
@@ -150,7 +172,20 @@ export async function getCandles(target, options = {}) {
       !provider.supportsCandleInterval(PROVIDER_INTERVAL[interval] || interval)
     ) {
       const message = "Provider does not support this interval.";
-      errors.push({ provider: provider.id, message });
+      errors.push({ provider: provider.id, message, reason: "unsupported-interval" });
+      recordMarketRequest({ ...requestContext, attempted: false, error: new Error(message) });
+      continue;
+    }
+
+    const policy = await checkProvider(provider.id);
+    if (!policy.allowed) {
+      const message = `Provider circuit open (${policy.reason}); retry after ${policy.retryAfterSeconds}s.`;
+      errors.push({
+        provider: provider.id,
+        message,
+        reason: policy.reason,
+        retryAfterSeconds: policy.retryAfterSeconds
+      });
       recordMarketRequest({ ...requestContext, attempted: false, error: new Error(message) });
       continue;
     }
@@ -252,7 +287,9 @@ export async function getCandles(target, options = {}) {
       errors.push({
         provider: provider.id,
         message: error instanceof Error ? error.message : "Provider failed.",
-        status: Number.isFinite(Number(error?.status)) ? Number(error.status) : null
+        status: Number.isFinite(Number(error?.status)) ? Number(error.status) : null,
+        reason: error?.kind ?? null,
+        retryAfterSeconds: Number.isFinite(Number(error?.retryAfterSeconds)) ? Number(error.retryAfterSeconds) : null
       });
       recordMarketRequest({
         ...requestContext,

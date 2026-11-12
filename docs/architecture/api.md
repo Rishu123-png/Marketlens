@@ -31,6 +31,7 @@ or calculated server-side. There is deliberately no `/v1` prefix (decision O4).
 | `/api/jobs` | GET | List jobs owned by `x-owner-id` (legacy unowned only when absent) | `limit`, `status` |
 | `/api/jobs/[jobId]` | GET | Job status, agent runs, report, evidence | Poll until terminal; 404 for a different owner |
 | `/api/jobs/[jobId]` | DELETE | Cancel a job | Legal transitions only |
+| `/api/jobs/[jobId]` | POST | Explicitly retry a `FAILED` or `BLOCKED` job | Owner-scoped; 202 with a fresh queue delivery; 409 otherwise |
 | `/api/worker` | POST | Queue delivery entry point | QStash signature (when signing keys set) or `WORKER_SECRET` |
 
 ## Research job flow
@@ -39,12 +40,18 @@ or calculated server-side. There is deliberately no `/v1` prefix (decision O4).
 POST /api/research            → 202 { jobId, status: QUEUED, poll }
 worker (queue delivery)       → RUNNING
 GET /api/jobs/:jobId          → COMPLETED | PARTIAL | BLOCKED | FAILED
-                              → { job, agentRuns, report, gate, evidence }
+                              → { job, agentRuns, report, gate, evidence, dataWarnings }
+POST /api/jobs/:jobId         → 202 only when the job is FAILED or BLOCKED
+                              → transitions QUEUED, clears the old gate, records the retry
 ```
 
 `BLOCKED` means the deterministic gate refused publication. The report, agent runs
 and gate checks are still returned so the reason is visible — never published as a
-finished report.
+finished report. A retry never mutates the previous report; the new run appends its
+own report and agent-run rows. Retries are never automatic.
+
+`DELETE` on an already-terminal job is idempotent and reports that nothing was
+cancelled. `POST` on any status other than `FAILED`/`BLOCKED` returns `409`.
 
 ## Error shape
 

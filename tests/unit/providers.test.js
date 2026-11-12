@@ -183,6 +183,54 @@ test("alpha adapter falls back to the .BSE listing for Indian equities", async (
   });
 });
 
+test("alpha candles fall back to the BSE listing for an NSE instrument", async () => {
+  await withEnv({ ALPHA_VANTAGE_API_KEY: "test-key" }, async () => {
+    const requested = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      requested.push(String(url));
+      if (String(url).includes("symbol=RELIANCE.NSE")) {
+        return Response.json({ "Error Message": "Invalid API call." });
+      }
+      return Response.json({
+        "Meta Data": { "2. Symbol": "RELIANCE.BSE" },
+        "Time Series (Daily)": {
+          "2026-11-11": { "1. open": "10", "2. high": "12", "3. low": "9", "4. close": "11", "5. volume": "100" },
+          "2026-11-10": { "1. open": "9", "2. high": "11", "3. low": "8", "4. close": "10", "5. volume": "90" }
+        }
+      });
+    };
+
+    try {
+      const series = await alphaProvider.fetchCandles(reliance, { interval: "1day", limit: 2 });
+      assert.equal(series.length, 2);
+      assert.ok(series[0].time < series[1].time);
+      assert.equal(requested.length, 2);
+      assert.match(requested[1], /RELIANCE\.BSE/);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("alpha quota notices stop before trying the other exchange suffix", async () => {
+  await withEnv({ ALPHA_VANTAGE_API_KEY: "test-key" }, async () => {
+    const requested = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      requested.push(String(url));
+      return Response.json({ Note: "Our standard API rate limit is 25 requests per day." });
+    };
+
+    try {
+      await assert.rejects(() => alphaProvider.fetchQuote(reliance), /rate limit/i);
+      assert.equal(requested.length, 1, "a daily quota response must not trigger a second call");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
 test("fmp adapter reports a missing key instead of calling the provider", async () => {
   await withEnv({ FMP_API_KEY: "" }, async () => {
     const originalFetch = globalThis.fetch;

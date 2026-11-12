@@ -4,9 +4,10 @@ import researchHandler from "../handlers/research.js";
 import jobsHandler from "../handlers/jobs.js";
 import jobDetailHandler from "../handlers/jobs/[jobId].js";
 import workerHandler from "../handlers/worker.js";
-import { resetJobStoreForTests } from "../server/jobs/store.js";
+import { getJobStore, resetJobStoreForTests } from "../server/jobs/store.js";
 import { resetQueueForTests } from "../server/jobs/queue.js";
 import { resetRateLimitsForTests } from "../lib/server/rateLimit.js";
+import { signQstashPayload } from "../server/jobs/qstashSignature.js";
 
 function mockResponse() {
   return {
@@ -144,6 +145,79 @@ test("worker endpoint requires a configured secret and a matching header", async
     );
     assert.equal(unknownJob.statusCode, 404);
   });
+});
+
+test("a failed job can be explicitly retried but a completed one cannot", async () => {
+  freshState();
+  await withEnvironment({ GROQ_API_KEY: "test-key", QSTASH_TOKEN: undefined, WORKER_URL: undefined }, async () => {
+    const created = mockResponse();
+    await researchHandler({ method: "POST", body: { symbol: "RELIANCE", depth: "quick" }, headers: {} }, created);
+    const store = getJobStore();
+    await store.fail(created.body.jobId, "provider exploded");
+
+    const retried = mockResponse();
+    await jobDetailHandler({ method: "POST", query: { jobId: created.body.jobId }, headers: {} }, retried);
+    assert.equal(retried.statusCode, 202);
+    assert.equal(retried.body.retried, true);
+    assert.equal(retried.body.status, "QUEUED");
+    assert.equal(retried.body.queue.queue, "memory");
+    assert.equal(store.get(created.body.jobId).status, "QUEUED");
+
+    await store.cancel(created.body.jobId);
+    const cancelled = mockResponse();
+    await jobDetailHandler({ method: "POST", query: { jobId: created.body.jobId }, headers: {} }, cancelled);
+    assert.equal(cancelled.statusCode, 409);
+  });
+});
+
+test("a duplicate worker delivery for a terminal job is acknowledged, not re-run", async () => {
+  freshState();
+  await withEnvironment({ WORKER_SECRET: "worker-secret", QSTASH_TOKEN: undefined, WORKER_URL: undefined }, async () => {
+    const store = getJobStore();
+    const job = store.create({ instrumentId: "IN-EQ-RELIANCE", depth: "quick" });
+    store.transition(job.jobId, "VALIDATING");
+    store.transition(job.jobId, "QUEUED");
+    store.fail(job.jobId, "provider exploded");
+
+    const res = mockResponse();
+    await workerHandler(
+      { method: "POST", body: { jobId: job.jobId }, headers: { "x-worker-secret": "worker-secret" } },
+      res
+    );
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.status, "FAILED");
+    assert.equal(res.body.skipped, true);
+  });
+});
+
+test("a QStash signature verifies when the runtime has parsed the JSON body", async () => {
+  freshState();
+  await withEnvironment(
+    { QSTASH_CURRENT_SIGNING_KEY: "signing-key", WORKER_SECRET: undefined },
+    async () => {
+      const store = getJobStore();
+      const job = store.create({ instrumentId: "IN-EQ-RELIANCE", depth: "quick" });
+      store.transition(job.jobId, "VALIDATING");
+      store.transition(job.jobId, "QUEUED");
+      store.fail(job.jobId, "provider exploded");
+
+      // QStash publishes compact JSON; Vercel gives the handler an object.
+      const rawBody = JSON.stringify({ jobId: job.jobId });
+      const signature = signQstashPayload({ key: "signing-key", body: rawBody });
+      const res = mockResponse();
+      await workerHandler(
+        {
+          method: "POST",
+          body: { jobId: job.jobId },
+          headers: { "upstash-signature": signature }
+        },
+        res
+      );
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.body.authMethod, "qstash-signature");
+      assert.equal(res.body.skipped, true);
+    }
+  );
 });
 
 test("an owned research job is invisible to another browser identity", async () => {

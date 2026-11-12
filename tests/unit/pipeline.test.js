@@ -80,6 +80,39 @@ const OUTPUTS = {
     publicationGate: "warn",
     gateReasons: []
   },
+  "News Agent (events)": {
+    summary: "One company event was reported.",
+    observations: [],
+    evidenceIds: ["ev-1"],
+    confidence: "medium",
+    limitations: [],
+    events: [
+      {
+        id: "ev-1",
+        title: "Company publishes an update",
+        publishedAt: "2026-02-09T10:00:00.000Z",
+        publisher: "Wire",
+        url: "https://example.com/1",
+        category: "company",
+        summary: "A company update was reported.",
+        claimType: "reported"
+      }
+    ],
+    significance: [],
+    gaps: []
+  },
+  "Sentiment Agent (perception)": {
+    summary: "Tone is neutral.",
+    observations: [],
+    evidenceIds: ["ev-1"],
+    confidence: "low",
+    limitations: [],
+    label: "neutral",
+    score: 0,
+    drivers: [],
+    divergence: null,
+    coverage: { articles: 1, spanDays: 1 }
+  },
   "Coordinator Agent (synthesis)": {
     summary: "Synthesised research.",
     observations: ["Range-bound"],
@@ -103,6 +136,25 @@ const OUTPUTS = {
     disagreements: [],
     agentStatus: { chart: "COMPLETED", technical: "COMPLETED", risk: "COMPLETED" }
   }
+};
+
+const EVIDENCE = {
+  items: [
+    {
+      id: "ev-1",
+      sourceType: "news",
+      publisher: "Wire",
+      url: "https://example.com/1",
+      publishedAt: "2026-02-09T10:00:00.000Z",
+      retrievedAt: "2026-02-10T08:50:00.000Z",
+      excerpt: "A company update was reported.",
+      verification: "reported",
+      dedupeFingerprint: "abc123abc123"
+    }
+  ],
+  counts: { fetched: 1, accepted: 1, returned: 1, rejected: 0 },
+  sources: ["Wire"],
+  limitations: []
 };
 
 function stubProvider() {
@@ -161,4 +213,43 @@ test("worker + orchestrator produce a persisted, schema-valid report", async () 
   const runs = store.getAgentRuns(job.jobId);
   assert.deepEqual(Object.keys(runs).sort(), ["chart", "coordinator", "risk", "technical"]);
   assert.ok(Object.values(runs).every((run) => run.status === "COMPLETED"));
+});
+
+test("comprehensive research executes all six agents and persists the report", async () => {
+  const store = new InMemoryJobStore();
+  const job = store.create({ instrumentId: "IN-EQ-RELIANCE", depth: "comprehensive" });
+  store.transition(job.jobId, "VALIDATING", { reason: "validated" });
+  store.transition(job.jobId, "QUEUED", { reason: "queued" });
+
+  const runner = new JobRunner({
+    store,
+    logger: null,
+    now: () => NOW.toISOString(),
+    research: (options) =>
+      runResearch({
+        ...options,
+        quote: QUOTE,
+        candles: candles(),
+        evidence: EVIDENCE,
+        provider: stubProvider(),
+        now: () => NOW
+      })
+  });
+
+  const outcome = await runner.process(job.jobId);
+  const runs = store.getAgentRuns(job.jobId);
+
+  assert.deepEqual(Object.keys(runs).sort(), [
+    "chart",
+    "coordinator",
+    "news",
+    "risk",
+    "sentiment",
+    "technical"
+  ]);
+  assert.ok(Object.values(runs).every((run) => run.status === "COMPLETED"));
+  assert.equal(outcome.job.status, "COMPLETED");
+  assert.equal(outcome.result.status, "COMPLETED");
+  assert.ok(store.getResult(job.jobId).report.sections.executiveSummary);
+  assert.equal(store.getResult(job.jobId).report.jobId, job.jobId);
 });

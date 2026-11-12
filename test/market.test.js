@@ -34,7 +34,7 @@ test("NSE symbols try the FMP .NS ticker before the bare ticker", async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (url) => {
       requested.push(String(url));
-      if (String(url).includes("/quote/SUFFIXTEST.NS")) {
+      if (String(url).includes("quote?symbol=SUFFIXTEST.NS")) {
         return Response.json([{ symbol: "SUFFIXTEST.NS", price: 99.5 }]);
       }
       throw new Error(`Unexpected URL: ${url}`);
@@ -47,7 +47,7 @@ test("NSE symbols try the FMP .NS ticker before the bare ticker", async () => {
       assert.equal(res.statusCode, 200);
       assert.equal(res.body.price, 99.5);
       assert.equal(requested.length, 1);
-      assert.match(requested[0], /quote\/SUFFIXTEST\.NS\?/);
+      assert.match(requested[0], /quote\?symbol=SUFFIXTEST\.NS&/);
       assert.equal(res.body.displaySymbol, "SUFFIXTEST");
     } finally {
       globalThis.fetch = originalFetch;
@@ -118,7 +118,7 @@ test("BSE symbols use the FMP .BO suffix", async () => {
       const res = mockResponse();
       await marketHandler({ query: { symbol: "BSETEST", exchange: "BSE" } }, res);
       assert.equal(res.statusCode, 200);
-      assert.match(called, /quote\/BSETEST\.BO\?/);
+      assert.match(called, /quote\?symbol=BSETEST\.BO&/);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -158,7 +158,7 @@ test("a symbol with no exchange is queried once, without an invented venue", asy
 
       assert.equal(res.statusCode, 200);
       assert.equal(requested.length, 1);
-      assert.match(requested[0], /quote\/VENUELESS\?/);
+      assert.match(requested[0], /quote\?symbol=VENUELESS&/);
     } finally {
       globalThis.fetch = originalFetch;
     }
