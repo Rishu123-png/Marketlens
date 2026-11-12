@@ -14,6 +14,8 @@
  * common charting platforms.
  */
 
+export const INDICATOR_ENGINE_VERSION = "1.0.0";
+
 function toNumber(value) {
   if (value === null || value === undefined || value === "") return null;
   const number = Number(value);

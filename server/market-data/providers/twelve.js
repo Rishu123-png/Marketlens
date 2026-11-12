@@ -1,5 +1,5 @@
 import { fetchJson } from "../http.js";
-import { normalizeQuote } from "../normalize.js";
+import { normalizeCandle, normalizeQuote } from "../normalize.js";
 import { resolveProviderSymbol } from "../../../shared/instruments/catalog.js";
 
 const SOURCE = "Twelve Data";
@@ -46,5 +46,34 @@ export const twelveProvider = {
     }
 
     return quote;
+  },
+
+  async fetchCandles(instrument, { interval = "1day", limit = 365 } = {}) {
+    const apiKey = process.env.TWELVE_DATA_API_KEY;
+    if (!apiKey) throw new Error("Twelve Data API key is not configured.");
+
+    const symbol = resolveProviderSymbol(instrument, "twelve");
+    if (!symbol) throw new Error("Twelve Data has no mapping for this instrument.");
+
+    const data = await fetchJson(
+      "https://api.twelvedata.com/time_series" +
+        `?symbol=${encodeURIComponent(symbol)}` +
+        `&interval=${encodeURIComponent(interval)}` +
+        `&outputsize=${encodeURIComponent(String(Math.min(Math.max(limit, 10), 5000)))}` +
+        `&apikey=${encodeURIComponent(apiKey)}`,
+      { timeoutMs: 12_000 }
+    );
+
+    if (data?.status === "error" || data?.code) {
+      throw new Error(data?.message || "Twelve Data returned an error.");
+    }
+    if (!Array.isArray(data?.values)) {
+      throw new Error("Twelve Data returned no candles.");
+    }
+
+    return data.values
+      .map((row) => normalizeCandle({ ...row, datetime: row.datetime }, SOURCE))
+      .filter(Boolean)
+      .reverse();
   }
 };

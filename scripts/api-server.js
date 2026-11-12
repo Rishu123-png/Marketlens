@@ -2,21 +2,30 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
+import { buildRouteTable, matchRoute } from "./api-router.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const routes = new Set([
-  "finnhub",
-  "health",
-  "history",
-  "instruments",
-  "market",
-  "provider-status",
-  "report",
-  "search",
-  "top-stocks",
-  "universe"
-]);
+const apiDirectory = path.join(root, "api");
 const MAX_BODY_BYTES = 256 * 1024;
+
+let routeTablePromise = null;
+const moduleCache = new Map();
+
+function getRouteTable() {
+  routeTablePromise ??= buildRouteTable(apiDirectory);
+  return routeTablePromise;
+}
+
+function loadHandler(file) {
+  if (!moduleCache.has(file)) moduleCache.set(file, import(pathToFileURL(file)));
+  return moduleCache.get(file);
+}
+
+/** Test hook: forget discovered routes and cached handler modules. */
+export function resetApiRouter() {
+  routeTablePromise = null;
+  moduleCache.clear();
+}
 
 export async function loadLocalEnvironment() {
   for (const file of [".env.local", ".env"]) {
@@ -63,21 +72,39 @@ async function readBody(req) {
   }
 }
 
+function jsonResponse(outgoing) {
+  return (status) =>
+    (data) => {
+      const payload = JSON.stringify(data);
+      outgoing.writeHead(status, {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff"
+      });
+      outgoing.end(payload);
+    };
+}
+
 export function createApiServer() {
   return createServer(async (incoming, outgoing) => {
     const url = new URL(incoming.url || "/", "http://localhost");
-    const match = url.pathname.match(/^\/api\/([a-z-]+)(?:\.js)?\/?$/);
-    const route = match?.[1];
-    if (!route || !routes.has(route)) {
-      outgoing.writeHead(404, { "content-type": "application/json" });
-      outgoing.end(JSON.stringify({ error: "API route not found." }));
-      return;
-    }
 
     try {
-      const query = Object.fromEntries(url.searchParams.entries());
+      const table = await getRouteTable();
+      const match = matchRoute(table, url.pathname);
+
+      if (!match) {
+        jsonResponse(outgoing)(404)({ error: "API route not found." });
+        return;
+      }
+
+      const query = {
+        ...Object.fromEntries(url.searchParams.entries()),
+        ...match.params
+      };
       const body = ["GET", "HEAD"].includes(incoming.method) ? undefined : await readBody(incoming);
       const req = Object.assign(incoming, { query, body });
+
       let status = 200;
       let sent = false;
       const res = {
@@ -92,23 +119,23 @@ export function createApiServer() {
         json(data) {
           if (sent) return this;
           sent = true;
-          const payload = JSON.stringify(data);
-          outgoing.writeHead(status, {
-            "content-type": "application/json; charset=utf-8",
-            "cache-control": "no-store"
-          });
-          outgoing.end(payload);
+          jsonResponse(outgoing)(status)(data);
           return this;
         }
       };
-      const module = await import(pathToFileURL(path.join(root, "api", `${route}.js`)));
+
+      const module = await loadHandler(match.route.file);
       await module.default(req, res);
       if (!sent) res.status(204).json(null);
     } catch (error) {
       if (outgoing.headersSent) return outgoing.end();
       const status = error.statusCode || 500;
       outgoing.writeHead(status, { "content-type": "application/json; charset=utf-8" });
-      outgoing.end(JSON.stringify({ error: status === 500 ? "API request failed." : error.message }));
+      outgoing.end(
+        JSON.stringify({
+          error: status === 500 ? "API request failed." : error.message
+        })
+      );
     }
   });
 }

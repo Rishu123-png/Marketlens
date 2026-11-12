@@ -1,12 +1,34 @@
 {
   "functions": {
-    "api/market.js": { "maxDuration": 30 },
-    "api/report.js": { "maxDuration": 60 },
-    "api/search.js": { "maxDuration": 30 },
-    "api/instruments.js": { "maxDuration": 10 },
-    "api/top-stocks.js": { "maxDuration": 60 }
+    "api/market.js": {
+      "maxDuration": 30
+    },
+    "api/report.js": {
+      "maxDuration": 60
+    },
+    "api/search.js": {
+      "maxDuration": 30
+    },
+    "api/instruments.js": {
+      "maxDuration": 10
+    },
+    "api/top-stocks.js": {
+      "maxDuration": 60
+    },
+    "api/history.js": {
+      "maxDuration": 30
+    },
+    "api/indicators.js": {
+      "maxDuration": 30
+    },
+    "api/analysis.js": {
+      "maxDuration": 30
+    }
   },
   "rewrites": [
-    { "source": "/api/market", "destination": "/api/market.js" }
+    {
+      "source": "/api/market",
+      "destination": "/api/market.js"
+    }
   ]
 }

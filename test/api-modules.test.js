@@ -47,7 +47,7 @@ test("history endpoint reports a missing provider instead of failing", async () 
   try {
     await handler({ query: { symbol: "RELIANCE" } }, res);
     assert.equal(res.statusCode, 503);
-    assert.match(res.body.error, /provider is configured/i);
+    assert.match(res.body.error, /no configured provider/i);
     assert.equal(res.body.candles, undefined);
   } finally {
     if (previousTwelve === undefined) delete process.env.TWELVE_DATA_API_KEY;

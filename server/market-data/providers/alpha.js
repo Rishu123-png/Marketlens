@@ -1,5 +1,5 @@
 import { fetchJson } from "../http.js";
-import { normalizeQuote } from "../normalize.js";
+import { normalizeCandle, normalizeQuote } from "../normalize.js";
 import { resolveProviderSymbol } from "../../../shared/instruments/catalog.js";
 
 const SOURCE = "Alpha Vantage";
@@ -64,5 +64,54 @@ export const alphaProvider = {
     }
 
     throw new Error(lastError);
+  },
+
+  async fetchCandles(instrument, { interval = "1day", limit = 365 } = {}) {
+    const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
+    if (!apiKey) throw new Error("Alpha Vantage API key is not configured.");
+
+    const series =
+      interval === "1week" ? "TIME_SERIES_WEEKLY" : interval === "1day" ? "TIME_SERIES_DAILY" : null;
+    if (!series) {
+      throw new Error("Alpha Vantage only supports 1day and 1week candles here.");
+    }
+
+    const symbol = resolveProviderSymbol(instrument, "alpha");
+    if (!symbol) throw new Error("Alpha Vantage has no mapping for this instrument.");
+
+    const data = await fetchJson(
+      "https://www.alphavantage.co/query" +
+        `?function=${series}` +
+        `&symbol=${encodeURIComponent(symbol)}` +
+        "&outputsize=compact" +
+        `&apikey=${encodeURIComponent(apiKey)}`,
+      { timeoutMs: 12_000 }
+    );
+
+    if (data?.Note) throw new Error(data.Note);
+    if (data?.Information) throw new Error(data.Information);
+    if (data?.["Error Message"]) throw new Error(data["Error Message"]);
+
+    const key = Object.keys(data || {}).find((entry) => entry.toLowerCase().includes("time series"));
+    if (!key) throw new Error("Alpha Vantage returned no candles.");
+
+    const candles = Object.entries(data[key])
+      .map(([date, row]) =>
+        normalizeCandle(
+          {
+            date,
+            open: row["1. open"],
+            high: row["2. high"],
+            low: row["3. low"],
+            close: row["4. close"],
+            volume: row["5. volume"]
+          },
+          SOURCE
+        )
+      )
+      .filter(Boolean)
+      .reverse();
+
+    return limit ? candles.slice(-limit) : candles;
   }
 };
