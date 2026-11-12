@@ -11,6 +11,7 @@ import { getInstrument, instrumentFromSymbol } from "../../shared/instruments/ca
 import { toEvidence, dedupeEvidence } from "./normalize.js";
 import { getNewsProviders } from "./providers/index.js";
 import { FILING_PROVIDERS } from "./filings/index.js";
+import { recordSourceOutcome } from "../evidence/health.js";
 
 export const EVIDENCE_CACHE_TTL_MS = 3 * 60 * 1000;
 export const MAX_EVIDENCE_ITEMS = 40;
@@ -76,14 +77,12 @@ export async function gatherEvidence(options = {}) {
         sinceDays
       });
       sources.push({ id: provider.id, status: "ok", items: items.length });
+      recordSourceOutcome(provider.id, { ok: true });
       raw.push(...items);
     } catch (error) {
-      sources.push({
-        id: provider.id,
-        status: "failed",
-        items: 0,
-        reason: error instanceof Error ? error.message.slice(0, 200) : "Provider failed."
-      });
+      const reason = error instanceof Error ? error.message.slice(0, 200) : "Provider failed.";
+      recordSourceOutcome(provider.id, { ok: false, error: reason });
+      sources.push({ id: provider.id, status: "failed", items: 0, reason });
     }
   }
 
@@ -105,15 +104,13 @@ export async function gatherEvidence(options = {}) {
 
     try {
       const items = await provider.search({ instrument, limit });
-      sources.push({ id: provider.id, status: "unverified", items: items.length });
+      sources.push({ id: provider.id, status: provider.id === "sec-edgar" ? "ok" : "unverified", items: items.length });
+      recordSourceOutcome(provider.id, { ok: true });
       raw.push(...items);
     } catch (error) {
-      sources.push({
-        id: provider.id,
-        status: "failed",
-        items: 0,
-        reason: error instanceof Error ? error.message.slice(0, 200) : "Filing provider failed."
-      });
+      const reason = error instanceof Error ? error.message.slice(0, 200) : "Filing provider failed.";
+      recordSourceOutcome(provider.id, { ok: false, error: reason });
+      sources.push({ id: provider.id, status: "failed", items: 0, reason });
     }
   }
 

@@ -9,6 +9,7 @@
 
 import { sourceStatuses } from "./registry.js";
 import { officialSourceCache } from "./cache.js";
+import { healthSnapshot, isFailing } from "./health.js";
 import { rssPollingEnabled } from "../news/feeds.js";
 
 export const COVERAGE_VERSION = "1.0.0";
@@ -88,6 +89,7 @@ export function buildCoverage({
   env = process.env,
   sources = sourceStatuses(env),
   cache = officialSourceCache,
+  health = healthSnapshot(),
   now = () => new Date()
 } = {}) {
   const capabilities = {};
@@ -99,11 +101,39 @@ export function buildCoverage({
       (source) => source.kind === "feed" || (source.official && source.id !== "sec-edgar" && source.capability === "news")
     );
 
+    // Runtime reachability can only make coverage worse, never better: a source
+    // that is configured but failing must not be advertised as available.
+    const usable = scoped.filter((source) => ["available", "degraded"].includes(source.status));
+    const failing = usable.filter((source) => isFailing(health[source.id]));
+    const observed = usable.filter((source) => Boolean(health[source.id]));
+    const runtime =
+      failing.length === 0
+        ? { state: observed.length ? "healthy" : "unobserved", failingSources: [], lastError: null }
+        : failing.length === usable.length
+          ? {
+              state: "failing",
+              failingSources: failing.map((source) => source.id),
+              lastError: failing.map((source) => health[source.id]?.lastError).find(Boolean) ?? null
+            }
+          : {
+              state: "partial-failure",
+              failingSources: failing.map((source) => source.id),
+              lastError: failing.map((source) => health[source.id]?.lastError).find(Boolean) ?? null
+            };
+
+    const status = runtime.state === "failing" ? "degraded" : verdict.status;
+    const reason =
+      runtime.state === "failing"
+        ? `Configured sources are failing at runtime: ${runtime.failingSources.join(", ")}.`
+        : verdict.reason;
+
     capabilities[id] = {
       label: meta.label,
       description: meta.description,
-      status: verdict.status,
-      reason: verdict.reason,
+      status,
+      configuredStatus: verdict.status,
+      runtime,
+      reason,
       liveVerification: liveUnverified && verdict.status !== "unavailable" ? "unverified" : "not-applicable",
       delayed: id === "nav" || id === "macro" || id === "quotes",
       sources: scoped.map((source) => source.id),
@@ -128,7 +158,17 @@ export function buildCoverage({
       ? "Some evidence sources are limited or unavailable. Reports state their coverage explicitly."
       : "All configured evidence sources are usable.",
     capabilities,
-    sources,
+    sources: sources.map((source) => ({
+      ...source,
+      runtime: health[source.id]
+        ? {
+            failing: isFailing(health[source.id]),
+            lastSuccessAt: health[source.id].lastSuccessAt,
+            lastFailureAt: health[source.id].lastFailureAt,
+            lastError: health[source.id].lastError
+          }
+        : null
+    })),
     limitations,
     cache: typeof cache?.stats === "function" ? cache.stats() : null
   };

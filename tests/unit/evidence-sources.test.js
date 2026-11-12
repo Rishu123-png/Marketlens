@@ -94,6 +94,7 @@ test("coverage reports honest capability states without credentials", () => {
   const coverage = buildCoverage({
     env: {},
     cache: null,
+    health: {},
     now: () => new Date("2026-01-01T00:00:00.000Z")
   });
 
@@ -120,12 +121,95 @@ test("coverage reports honest capability states without credentials", () => {
 
   const keyed = buildCoverage({
     env: { TWELVE_DATA_API_KEY: "k", GROQ_API_KEY: "g" },
-    cache: null
+    cache: null,
+    health: {}
   });
   assert.equal(keyed.capabilities.candles.status, "degraded");
 
-  const disabled = buildCoverage({ env: { NEWS_RSS_ENABLED: "off" }, cache: null });
+  const disabled = buildCoverage({ env: { NEWS_RSS_ENABLED: "off" }, cache: null, health: {} });
   assert.equal(disabled.capabilities.news.status, "unavailable");
+});
+
+test("coverage downgrades configured sources that are failing at runtime", () => {
+  const now = new Date("2026-01-01T00:00:00.000Z");
+  const failing = buildCoverage({
+    env: {},
+    cache: null,
+    now: () => now,
+    health: {
+      "rbi-press-releases": {
+        lastSuccessAt: null,
+        lastFailureAt: now.toISOString(),
+        lastError: "fetch failed"
+      },
+      "rbi-notifications": {
+        lastSuccessAt: null,
+        lastFailureAt: now.toISOString(),
+        lastError: "fetch failed"
+      },
+      "rbi-speeches": {
+        lastSuccessAt: null,
+        lastFailureAt: now.toISOString(),
+        lastError: "fetch failed"
+      },
+      "sebi-all": {
+        lastSuccessAt: null,
+        lastFailureAt: now.toISOString(),
+        lastError: "fetch failed"
+      },
+      "pib-economy": {
+        lastSuccessAt: null,
+        lastFailureAt: now.toISOString(),
+        lastError: "fetch failed"
+      }
+    }
+  });
+
+  const news = failing.capabilities.news;
+  assert.equal(news.configuredStatus, "available");
+  assert.equal(news.status, "degraded");
+  assert.equal(news.runtime.state, "failing");
+  assert.equal(news.runtime.lastError, "fetch failed");
+  assert.match(news.reason, /failing at runtime/);
+  assert.ok(failing.limitations.some((line) => /News & regulatory context degraded/.test(line)));
+
+  const recovered = buildCoverage({
+    env: {},
+    cache: null,
+    now: () => now,
+    health: {
+      "rbi-press-releases": {
+        lastSuccessAt: now.toISOString(),
+        lastFailureAt: "2025-12-31T00:00:00.000Z",
+        lastError: null
+      },
+      "rbi-notifications": {
+        lastSuccessAt: null,
+        lastFailureAt: now.toISOString(),
+        lastError: "timeout"
+      }
+    }
+  });
+  assert.equal(recovered.capabilities.news.runtime.state, "partial-failure");
+  assert.equal(recovered.capabilities.news.status, "available");
+});
+
+test("source health tracks success, failure and recovery", async () => {
+  const { recordSourceOutcome, sourceHealth, isFailing, resetSourceHealthForTests } = await import(
+    "../../server/evidence/health.js"
+  );
+  resetSourceHealthForTests();
+
+  recordSourceOutcome("demo", { ok: false, error: "boom", at: new Date("2026-01-01T00:00:00Z") });
+  assert.equal(isFailing(sourceHealth("demo")), true);
+  assert.equal(sourceHealth("demo").lastError, "boom");
+
+  recordSourceOutcome("demo", { ok: true, at: new Date("2026-01-01T00:01:00Z") });
+  assert.equal(isFailing(sourceHealth("demo")), false);
+  assert.equal(sourceHealth("demo").consecutiveFailures, 0);
+  assert.equal(sourceHealth("missing"), null);
+
+  resetSourceHealthForTests();
 });
 
 function jsonResponse(payload, status = 200) {
@@ -263,6 +347,9 @@ test("AMFI client fails closed when every URL is unavailable", async () => {
     }
   });
   await assert.rejects(() => client.lookup({ schemeCode: "140088" }), /AMFI NAV file unavailable/);
+
+  const { sourceHealth } = await import("../../server/evidence/health.js");
+  assert.equal(sourceHealth("amfi-nav").lastError !== null, true);
 });
 
 test("data.gov.in adapter is opt-in, validates ids and caches responses", async () => {

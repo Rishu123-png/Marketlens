@@ -1,6 +1,7 @@
 import { fetchText } from "../http.js";
 import { parseFeed } from "../rss.js";
 import { activeFeeds, feedStatus } from "../feeds.js";
+import { recordSourceOutcome } from "../../evidence/health.js";
 
 const SOURCE = "Official RSS";
 
@@ -62,14 +63,14 @@ export const rssProvider = {
     for (const outcome of settled) {
       if (outcome.status === "rejected") {
         const feed = feeds[settled.indexOf(outcome)];
-        failures.push({
-          feed: feed?.id ?? "unknown",
-          message: outcome.reason instanceof Error ? outcome.reason.message : "feed failed"
-        });
+        const message = outcome.reason instanceof Error ? outcome.reason.message : "feed failed";
+        recordSourceOutcome(feed?.id ?? "unknown-feed", { ok: false, error: message });
+        failures.push({ feed: feed?.id ?? "unknown", message });
         continue;
       }
 
       const { feed, entries } = outcome.value;
+      recordSourceOutcome(feed.id, { ok: true });
       for (const entry of entries) {
         results.push({
           title: entry.title,
@@ -87,8 +88,14 @@ export const rssProvider = {
     }
 
     if (!results.length && failures.length === feeds.length) {
+      recordSourceOutcome("official-rss", {
+        ok: false,
+        error: failures.map((item) => `${item.feed} ${item.message}`).join("; ")
+      });
       throw new Error(`All official feeds failed: ${failures.map((item) => `${item.feed} ${item.message}`).join("; ")}`);
     }
+
+    if (results.length) recordSourceOutcome("official-rss", { ok: true });
 
     return results
       .sort((a, b) => Date.parse(b.publishedAt || 0) - Date.parse(a.publishedAt || 0))

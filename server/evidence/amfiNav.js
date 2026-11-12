@@ -14,6 +14,7 @@
  */
 
 import { officialSourceCache } from "./cache.js";
+import { recordSourceOutcome } from "./health.js";
 
 export const AMFI_URLS = [
   "https://www.amfiindia.com/spages/NAVAll.txt",
@@ -102,6 +103,7 @@ export function createAmfiNavClient({
           const text = await response.text();
           const parsed = parseNavAll(text);
           if (parsed.count === 0) throw new Error("NAV file contained no parsable schemes.");
+          recordSourceOutcome("amfi-nav", { ok: true });
           return { ...parsed, url };
         } catch (error) {
           failures.push(`${url}: ${error instanceof Error ? error.message : "failed"}`);
@@ -109,7 +111,9 @@ export function createAmfiNavClient({
       }
 
       attempts.push(...failures);
-      throw new Error(`AMFI NAV file unavailable (${failures.join("; ")}).`);
+      const message = `AMFI NAV file unavailable (${failures.join("; ")}).`;
+      recordSourceOutcome("amfi-nav", { ok: false, error: failures[0] ?? message });
+      throw new Error(message);
     });
 
     return value;

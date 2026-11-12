@@ -65,6 +65,13 @@ coverage limits rather than implying they saw data they did not.
 `liveVerification: "unverified"` means the publisher documents the interface and
 we poll it, but no request from this deployment has succeeded yet.
 
+Runtime reachability is recorded separately in `server/evidence/health.js` (in-memory,
+per instance). If every usable source for a capability is failing more recently
+than it last succeeded, coverage downgrades that capability to `degraded` with
+`runtime.state = "failing"`, the failing source ids and the last error. Optional
+third-party fallbacks never promote a capability, and runtime health only ever
+makes coverage worse — configuration alone is not treated as availability.
+
 ## Caching and request reduction
 
 - Official RSS: evidence cache 3 min per instrument/query; feeds are fetched

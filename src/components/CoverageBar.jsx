@@ -14,6 +14,11 @@ function chipTitle(capability) {
   return [
     capability.reason,
     capability.note,
+    capability.runtime?.state === "failing"
+      ? `Configured but failing at runtime: ${capability.runtime.failingSources?.join(", ") ?? "source"}.`
+      : capability.runtime?.state === "partial-failure"
+        ? `Some sources are failing: ${capability.runtime.failingSources?.join(", ") ?? "source"}.`
+        : null,
     capability.delayed ? "Delayed by design." : null,
     capability.liveVerification === "unverified" ? "Live reachability not verified in this environment." : null
   ]

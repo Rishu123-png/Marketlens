@@ -12,6 +12,7 @@
  */
 
 import { officialSourceCache } from "./cache.js";
+import { recordSourceOutcome } from "./health.js";
 
 export const DATA_GOV_IN_BASE = "https://api.data.gov.in/resource";
 export const DATA_GOV_IN_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
@@ -70,10 +71,12 @@ export function createDataGovClient({
       if (!response.ok) {
         const error = new Error(`data.gov.in responded ${response.status}.`);
         error.statusCode = response.status === 429 ? 429 : 502;
+        recordSourceOutcome("data-gov-in", { ok: false, error: error.message });
         throw error;
       }
 
       const payload = await response.json();
+      recordSourceOutcome("data-gov-in", { ok: true });
       return {
         total: Number(payload?.total) || 0,
         count: Number(payload?.count) || (Array.isArray(payload?.records) ? payload.records.length : 0),
