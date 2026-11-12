@@ -9,6 +9,8 @@ import { storageStatus } from "../server/storage/index.js";
 import { queueStatus } from "../server/jobs/queue.js";
 import { buildCoverage } from "../server/evidence/coverage.js";
 import { DEFAULT_MODEL, FALLBACK_MODEL } from "../server/ai/config.js";
+import { observationSnapshot } from "../server/market-data/observations.js";
+import { buildInstrumentMatrix } from "../server/instruments/service.js";
 
 const MARKET_KEYS = {
   fmp: "FMP_API_KEY",
@@ -43,6 +45,8 @@ export default function handler(_req, res) {
   const news = newsProviderStatus();
   const filings = filingProviderStatus();
   const coverage = buildCoverage();
+  const instruments = buildInstrumentMatrix();
+  const observed = observationSnapshot();
 
   res.status(200).json({
     ok: true,
@@ -66,8 +70,17 @@ export default function handler(_req, res) {
       fallbackModel: FALLBACK_MODEL,
       modelFallbackEnabled: !["off", "false", "0", "disabled"].includes(
         String(process.env.AI_MODEL_FALLBACK ?? "on").toLowerCase()
-      )
+      ),
+      supportedModels: ["openai/gpt-oss-120b", "openai/gpt-oss-20b"],
+      modelNotes: [
+        "llama-3.3-70b-versatile was retired for free/developer tiers on 2026-08-16 and returns HTTP 404 model_not_found.",
+        "OpenAI gpt-oss models receive reasoning_effort=low; reasoning tokens share the completion budget.",
+        "A retired or unavailable model triggers one recorded fallback (modelFallback on the run), never a silent swap."
+      ],
+      liveModelVerification: process.env.GROQ_API_KEY ? "configured-unverified" : "not-configured"
     },
+    marketObservations: observed,
+    instrumentCoverage: instruments.coverage,
     storage: storageStatus(),
     queue: queueStatus(),
     verificationLevels: {

@@ -55,16 +55,13 @@ test("NSE symbols try the FMP .NS ticker before the bare ticker", async () => {
   });
 });
 
-test("FMP falls back to the bare ticker when the suffixed one is empty", async () => {
+test("FMP never falls back to a bare Indian ticker that could be another company", async () => {
   await withEnvironment({ FMP_API_KEY: "test-key", PRIMARY_MARKET_PROVIDER: "fmp" }, async () => {
     const requested = [];
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (url) => {
       requested.push(String(url));
       if (String(url).includes("/quote/FALLBACKTEST.NS")) return Response.json([]);
-      if (String(url).includes("/quote/FALLBACKTEST?")) {
-        return Response.json([{ symbol: "FALLBACKTEST", price: 10 }]);
-      }
       throw new Error(`Unexpected URL: ${url}`);
     };
 
@@ -72,11 +69,36 @@ test("FMP falls back to the bare ticker when the suffixed one is empty", async (
       const res = mockResponse();
       await marketHandler({ query: { symbol: "FALLBACKTEST", exchange: "NSE" } }, res);
 
-      assert.equal(res.statusCode, 200);
-      assert.equal(res.body.price, 10);
-      assert.equal(requested.length, 2);
+      assert.equal(res.statusCode, 503);
+      assert.equal(requested.length, 1, "a missing .NS listing must not trigger a bare-ticker request");
       assert.match(requested[0], /FALLBACKTEST\.NS/);
-      assert.match(requested[1], /FALLBACKTEST\?/);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+test("a cross-currency quote for the wrong listing is rejected (TCS regression)", async () => {
+  await withEnvironment({ FMP_API_KEY: "test-key", PRIMARY_MARKET_PROVIDER: "fmp" }, async () => {
+    const originalFetch = globalThis.fetch;
+    // The real-world bug: FMP's bare `TCS` is The Container Store on NYSE in USD.
+    globalThis.fetch = async () =>
+      Response.json([
+        {
+          symbol: "TCS",
+          price: 37.45,
+          currency: "USD",
+          exchangeShortName: "NYSE"
+        }
+      ]);
+
+    try {
+      const res = mockResponse();
+      await marketHandler({ query: { symbol: "TCS", exchange: "NSE" } }, res);
+
+      assert.equal(res.statusCode, 503);
+      assert.equal(res.body.price, undefined);
+      assert.match(JSON.stringify(res.body.details), /cross-currency|listed on NSE/i);
     } finally {
       globalThis.fetch = originalFetch;
     }

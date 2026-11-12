@@ -41,6 +41,11 @@ export function normalizeQuote({ item = {}, instrument, source, provider, provid
 
     source,
     provider,
+    // Identity evidence from the provider, used by the gateway to reject a
+    // silently mis-resolved ticker (e.g. a US listing quoted for an NSE stock).
+    providerSymbol: item.symbol ? String(item.symbol) : null,
+    providerExchange: item.exchange ?? item.exchangeShortName ?? item.primaryExchange ?? null,
+    providerCurrency: item.currency ?? null,
 
     // `updatedAt` is the retrieval time and predates this normalization layer;
     // it is kept so existing clients and reports keep working.

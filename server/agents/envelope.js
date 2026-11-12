@@ -50,6 +50,21 @@ function compactChart(chart) {
   };
 }
 
+function compactStructure(structure) {
+  if (!structure) return null;
+  return {
+    engineVersion: structure.engineVersion,
+    interval: structure.interval,
+    candles: structure.candles,
+    lastClose: structure.lastClose,
+    atr: structure.atr,
+    signals: (structure.signals || []).slice(0, 16),
+    supportResistance: structure.supportResistance || [],
+    rules: structure.rules || [],
+    limitations: structure.limitations || []
+  };
+}
+
 function compactEvidence(items) {
   return (items || []).slice(0, MAX_EVIDENCE).map((item) => ({
     evidenceId: item.id ?? item.evidenceId,
@@ -73,6 +88,7 @@ export function buildEvidenceEnvelope({
   candles = null,
   indicators = null,
   chart = null,
+  structure = null,
   evidence = null,
   quality = {},
   generatedAt = new Date().toISOString()
@@ -101,7 +117,8 @@ export function buildEvidenceEnvelope({
             changePercent: quote.changePercent,
             currency: quote.currency,
             provider: quote.provider,
-            providerTimestamp: quote.timestamp,
+            providerTimestamp: quote.providerTimestamp ?? null,
+            freshness: quote.freshness ?? null,
             retrievedAt: quote.retrievedAt
           }
         : null,
@@ -119,6 +136,7 @@ export function buildEvidenceEnvelope({
     },
     technical: indicators ? compactIndicators(indicators) : null,
     chart: chart ? compactChart(chart) : null,
+    structure: compactStructure(structure),
     evidence: {
       items: compactEvidence(items),
       counts: evidence?.counts ?? { fetched: 0, accepted: 0, returned: 0, rejected: 0 },

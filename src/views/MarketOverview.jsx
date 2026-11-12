@@ -1,281 +1,644 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { STOCK_UNIVERSE } from "../../lib/stock-universe.js";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import InstrumentSearch from "../components/InstrumentSearch.jsx";
+import CoverageBar from "../components/CoverageBar.jsx";
+import { api, formatMoney, formatPercent, formatTime } from "../lib/api.js";
+import { ASSET_LABELS, availabilityLabel } from "../lib/instruments.js";
+import { usePersistentState } from "../lib/usePersistentState.js";
 
-const money = (value) => {
-  if (value === null || value === undefined || value === "" || !Number.isFinite(Number(value))) return "—";
-  return `₹${Number(value).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
-};
+const TABS = [
+  ["movers", "Movers"],
+  ["heatmap", "Heatmap"],
+  ["sectors", "Sectors"],
+  ["instruments", "Instrument master"]
+];
 
-const percent = (value) => {
-  if (value === null || value === undefined || value === "" || !Number.isFinite(Number(value))) return "—";
-  const number = Number(value);
-  return `${number > 0 ? "+" : ""}${number.toFixed(2)}%`;
-};
-
-const compactNumber = (value) => {
-  if (value === null || value === undefined || !Number.isFinite(Number(value))) return "—";
+function compactVolume(value) {
+  if (!Number.isFinite(Number(value))) return "—";
   return Intl.NumberFormat("en-IN", { notation: "compact", maximumFractionDigits: 1 }).format(Number(value));
-};
-
-function readWatchlist() {
-  try {
-    const saved = JSON.parse(localStorage.getItem("marketlens-watchlist") || "[]");
-    return Array.isArray(saved) ? saved : [];
-  } catch {
-    return [];
-  }
 }
 
-export default function MarketOverview() {
-  const [universe, setUniverse] = useState(STOCK_UNIVERSE);
-  const [extraStocks, setExtraStocks] = useState([]);
-  const [quotes, setQuotes] = useState({});
-  const [watchlist, setWatchlist] = useState(readWatchlist);
-  const [activeView, setActiveView] = useState("all");
-  const [query, setQuery] = useState("");
-  const [searching, setSearching] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [updatedAt, setUpdatedAt] = useState("");
-  const [marketMessage, setMarketMessage] = useState("");
-  const [selected, setSelected] = useState(null);
-  const [quoteLoading, setQuoteLoading] = useState(false);
-  const [analysis, setAnalysis] = useState(null);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [analysisError, setAnalysisError] = useState("");
+function asInstrument(entry) {
+  return {
+    id: entry.id,
+    symbol: entry.symbol,
+    name: entry.name,
+    exchange: entry.exchange,
+    currency: entry.quote?.currency || entry.currency || "INR",
+    assetType: entry.assetType
+  };
+}
 
-  async function refreshMarket(showLoading = true) {
-    if (showLoading) setRefreshing(true);
-    setMarketMessage("");
+function IndexCard({ entry }) {
+  const quote = entry.quote;
+  const change = Number(quote?.changePercent);
+  return (
+    <article className="summary-card index-card">
+      <div className="summary-label">
+        <span>{entry.name}</span>
+        <span>{entry.exchange}</span>
+      </div>
+      <strong>{quote ? formatMoney(quote.price, quote.currency) : "—"}</strong>
+      <div className="index-meta">
+        {quote ? (
+          <>
+            <span className={change >= 0 ? "positive-text" : "negative-text"}>{formatPercent(quote.changePercent)}</span>
+            <small>{quote.source}</small>
+          </>
+        ) : (
+          <small className="not-quoted">no verified quote</small>
+        )}
+      </div>
+    </article>
+  );
+}
+
+export default function MarketOverview({ onNavigate }) {
+  const [overview, setOverview] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [tab, setTab] = useState("movers");
+  const [watchlist, setWatchlist] = usePersistentState("marketlens-watchlist-v2", []);
+  const [watchQuotes, setWatchQuotes] = useState({});
+  const [watchError, setWatchError] = useState(null);
+  const [instruments, setInstruments] = useState(null);
+  const [instrumentQuery, setInstrumentQuery] = useState("");
+  const [instrumentType, setInstrumentType] = useState("");
+  const [instrumentExchange, setInstrumentExchange] = useState("");
+  const [page, setPage] = useState(0);
+  const [instrumentLoading, setInstrumentLoading] = useState(false);
+  const pageSize = 25;
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      const response = await fetch("/api/top-stocks");
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Live market quotes are unavailable.");
-      const nextQuotes = Object.fromEntries((data.stocks || []).map((stock) => [stock.symbol, stock]));
-      setQuotes(nextQuotes);
-      setUpdatedAt(data.generatedAt || new Date().toISOString());
-      if (!Object.keys(nextQuotes).length) setMarketMessage("No provider-verified quotes are available right now.");
-    } catch (error) {
-      setMarketMessage(error instanceof Error ? error.message : "Live market quotes are unavailable.");
+      setOverview(await api("/api/market-overview"));
+    } catch (cause) {
+      setError(cause.message || "Market overview is unavailable.");
     } finally {
-      if (showLoading) setRefreshing(false);
+      setLoading(false);
     }
-  }
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/universe")
-      .then((response) => response.ok ? response.json() : null)
-      .then((data) => {
-        if (!cancelled && Array.isArray(data?.stocks) && data.stocks.length) setUniverse(data.stocks);
-      })
-      .catch(() => {});
-    refreshMarket(false);
-    const timer = window.setInterval(() => refreshMarket(false), 5 * 60 * 1000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("marketlens-watchlist", JSON.stringify(watchlist));
+    refresh();
+    const timer = window.setInterval(refresh, 3 * 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, [refresh]);
+
+  useEffect(() => {
+    if (!watchlist.length) {
+      setWatchQuotes({});
+      return;
+    }
+    let cancelled = false;
+    const symbols = watchlist
+      .slice(0, 24)
+      .map((entry) => `${entry.symbol}@${entry.exchange || "NSE"}`);
+    api(`/api/quotes?symbols=${encodeURIComponent(symbols.join(","))}`)
+      .then((data) => {
+        if (cancelled) return;
+        setWatchQuotes(
+          Object.fromEntries(
+            (data.quotes || []).map((entry) => [
+              `${entry.symbol}|${entry.quote?.exchange || entry.exchange || "NSE"}`,
+              entry.quote
+            ])
+          )
+        );
+        setWatchError((data.failures || []).length ? `${data.failures.length} watchlist instrument(s) have no verified quote.` : null);
+      })
+      .catch((cause) => {
+        if (!cancelled) setWatchError(cause.message);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [watchlist]);
 
-  const allStocks = useMemo(() => {
-    const seen = new Set();
-    return [...universe, ...extraStocks].filter((stock) => {
-      const key = `${stock.symbol}|${stock.exchange}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
+  useEffect(() => {
+    if (tab !== "instruments") return undefined;
+    let cancelled = false;
+    setInstrumentLoading(true);
+    const params = new URLSearchParams({
+      limit: String(pageSize),
+      offset: String(page * pageSize)
     });
-  }, [universe, extraStocks]);
+    if (instrumentQuery.trim()) params.set("q", instrumentQuery.trim());
+    if (instrumentType) params.set("assetType", instrumentType);
+    if (instrumentExchange) params.set("exchange", instrumentExchange);
 
-  const visibleStocks = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return allStocks.filter((stock) => {
-      if (activeView === "watchlist" && !watchlist.includes(stock.symbol)) return false;
-      const change = Number(quotes[stock.symbol]?.changePercent);
-      if (activeView === "gainers" && !(change > 0)) return false;
-      if (activeView === "losers" && !(change < 0)) return false;
-      if (!needle) return true;
-      return `${stock.symbol} ${stock.name} ${stock.sector || ""}`.toLowerCase().includes(needle);
-    });
-  }, [allStocks, activeView, watchlist, query, quotes]);
+    const timer = setTimeout(() => {
+      api(`/api/instruments?${params.toString()}`)
+        .then((data) => {
+          if (!cancelled) setInstruments(data);
+        })
+        .catch((cause) => {
+          if (!cancelled) setInstruments({ error: cause.message, instruments: [], total: 0 });
+        })
+        .finally(() => {
+          if (!cancelled) setInstrumentLoading(false);
+        });
+    }, 200);
 
-  const movers = useMemo(() => Object.values(quotes)
-    .filter((stock) => stock.changePercent !== null && stock.changePercent !== undefined && stock.changePercent !== "" && Number.isFinite(Number(stock.changePercent)))
-    .sort((a, b) => Number(b.changePercent) - Number(a.changePercent)), [quotes]);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [tab, instrumentQuery, instrumentType, instrumentExchange, page]);
 
-  async function searchProviderStocks(event) {
-    event?.preventDefault();
-    const value = query.trim();
-    if (value.length < 2) return;
-    setSearching(true);
-    try {
-      const response = await fetch(`/api/search?q=${encodeURIComponent(value)}`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Provider search is unavailable.");
-      setExtraStocks((current) => {
-        const keys = new Set(current.map((stock) => `${stock.symbol}|${stock.exchange}`));
-        const additions = [];
-        for (const stock of data.results || []) {
-          const key = `${stock.symbol}|${stock.exchange}`;
-          if (!keys.has(key)) {
-            keys.add(key);
-            additions.push(stock);
-          }
+  useEffect(() => {
+    setPage(0);
+  }, [instrumentQuery, instrumentType, instrumentExchange]);
+
+  const watchKeys = useMemo(() => new Set(watchlist.map((entry) => entry.id || `${entry.symbol}:${entry.exchange}`)), [watchlist]);
+
+  function toggleWatch(entry) {
+    const key = entry.id || `${entry.symbol}:${entry.exchange}`;
+    setWatchlist((current) => {
+      const exists = current.some((item) => (item.id || `${item.symbol}:${item.exchange}`) === key);
+      if (exists) return current.filter((item) => (item.id || `${item.symbol}:${item.exchange}`) !== key);
+      return [
+        ...current,
+        {
+          id: entry.id || key,
+          symbol: entry.symbol,
+          name: entry.name,
+          exchange: entry.exchange,
+          currency: entry.currency || entry.quote?.currency || "INR"
         }
-        return [...current, ...additions];
-      });
-      if (!data.results?.length) setMarketMessage("No additional provider matches. The popular stock list is still available below.");
-    } catch (error) {
-      setMarketMessage(error instanceof Error ? error.message : "Provider search is unavailable.");
-    } finally {
-      setSearching(false);
-    }
+      ];
+    });
   }
 
-  function toggleWatchlist(symbol) {
-    setWatchlist((current) => current.includes(symbol)
-      ? current.filter((item) => item !== symbol)
-      : [...current, symbol]);
-  }
-
-  async function selectStock(stock) {
-    setSelected({ ...stock, loading: true });
-    setQuoteLoading(true);
-    setAnalysis(null);
-    setAnalysisError("");
-    try {
-      const response = await fetch(`/api/market?symbol=${encodeURIComponent(stock.symbol)}&exchange=${encodeURIComponent(stock.exchange || "")}`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "No verified quote is available.");
-      if (data.quoteVerified !== true || data.price === null || data.price === undefined) throw new Error("No provider-verified price was returned.");
-      setSelected({ ...stock, ...data, mode: "verified", loading: false });
-    } catch (error) {
-      setSelected({ ...stock, loading: false, quoteError: error instanceof Error ? error.message : "Unable to load a verified quote." });
-    } finally {
-      setQuoteLoading(false);
-    }
-  }
-
-  async function analyzeStock() {
-    if (!selected || selected.mode !== "verified") return;
-    setAnalyzing(true);
-    setAnalysis(null);
-    setAnalysisError("");
-    try {
-      const response = await fetch("/api/report", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stock: { symbol: selected.symbol, exchange: selected.exchange || "" } })
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "AI analysis is unavailable.");
-      setAnalysis(data.report);
-    } catch (error) {
-      setAnalysisError(error instanceof Error ? error.message : "Unable to generate analysis.");
-    } finally {
-      setAnalyzing(false);
-    }
-  }
-
-  const quoteCount = Object.keys(quotes).length;
+  const coverage = overview?.coverage;
+  const coverageTone =
+    coverage?.status === "full-coverage"
+      ? "ok"
+      : coverage?.status === "partial-coverage"
+        ? "warn"
+        : coverage?.status === "low-coverage"
+          ? "bad"
+          : "muted";
 
   return (
-    <div className="view">
+    <section className="view">
+      <header className="page-heading">
+        <div>
+          <span className="eyebrow">MARKET OVERVIEW · INDIA FIRST <span className="eyebrow-date">{overview?.market?.label || ""}</span></span>
+          <h1>
+            The market, <span>stated with its coverage.</span>
+          </h1>
+          <p>
+            Index cards, breadth and movers are derived only from provider-verified quotes. Unverified instruments stay
+            unverified — no sample prices, no carried-forward fills.
+          </p>
+        </div>
+        <div className="heading-actions">
+          <span className="last-updated">{overview ? `AS OF ${formatTime(overview.generatedAt)}` : "LOADING"}</span>
+          <button className="refresh-button" type="button" onClick={refresh} disabled={loading}>
+            <span className={`refresh-icon ${loading ? "spinning" : ""}`}>↻</span>
+            {loading ? "Refreshing" : "Refresh"}
+          </button>
+        </div>
+      </header>
 
-        <section className="page-heading">
-          <div>
-            <div className="eyebrow">MARKET OVERVIEW <span className="eyebrow-date">· {new Date().toLocaleDateString("en-IN", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}</span></div>
-            <h1>Markets <span>at a glance.</span></h1>
-            <p>Your market watchlist, all in one place. The popular NSE stocks below load automatically.</p>
-          </div>
-          <div className="heading-actions"><span className="last-updated">{updatedAt ? `Updated ${new Date(updatedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}` : "Quotes update when available"}</span><button className="refresh-button" onClick={() => refreshMarket()} disabled={refreshing}><span className={refreshing ? "refresh-icon spinning" : "refresh-icon"}>↻</span>{refreshing ? "Refreshing" : "Refresh"}</button></div>
-        </section>
+      {error && (
+        <div className="notice error" role="alert">
+          <strong>Market overview is unavailable</strong>
+          <p>{error}</p>
+        </div>
+      )}
 
-        <section className="summary-grid" aria-label="Market summary">
-          <article className="summary-card"><div className="summary-label">POPULAR STOCKS <span>01</span></div><strong>{allStocks.length}</strong><small>Curated NSE listings</small></article>
-          <article className="summary-card"><div className="summary-label">VERIFIED QUOTES <span>02</span></div><strong>{quoteCount}<small className="summary-total"> / {allStocks.length}</small></strong><small>{quoteCount ? "Provider prices loaded" : "Waiting for data provider"}</small></article>
-          <article className="summary-card"><div className="summary-label">WATCHLIST <span>03</span></div><strong>{watchlist.length}</strong><small>Saved on this device</small></article>
-          <article className="summary-card data-card"><div className="summary-label">DATA STATUS <span>04</span></div><strong className={quoteCount ? "data-live" : "data-waiting"}>{quoteCount ? "Connected" : "Not connected"}</strong><small>{quoteCount ? "Quotes are provider verified" : "Configure a market data API key"}</small></article>
-        </section>
+      <div className="summary-grid">
+        {(overview?.indices || [
+          { name: "Nifty 50", symbol: "^NSEI", exchange: "NSE" },
+          { name: "Nifty Bank", symbol: "^NSEBANK", exchange: "NSE" },
+          { name: "Nifty IT", symbol: "^CNXIT", exchange: "NSE" },
+          { name: "BSE Sensex", symbol: "^BSESN", exchange: "BSE" }
+        ]).map((entry) => (
+          <IndexCard key={entry.symbol} entry={entry} />
+        ))}
+      </div>
 
-        {marketMessage && <div className="market-notice"><span>i</span><div><strong>Live quote update</strong><p>{marketMessage}</p></div><button onClick={() => setMarketMessage("")} aria-label="Dismiss message">×</button></div>}
+      <div className="breadth-strip">
+        <div className="breadth-counts">
+          <span className="breadth-label">VERIFIED BREADTH</span>
+          <strong className="positive-text">{overview?.breadth?.advancers ?? "—"}</strong>
+          <span className="breadth-sep">advanced</span>
+          <strong className="negative-text">{overview?.breadth?.decliners ?? "—"}</strong>
+          <span className="breadth-sep">declined</span>
+          <strong>{overview?.breadth?.unchanged ?? "—"}</strong>
+          <span className="breadth-sep">unchanged</span>
+        </div>
+        <div className="breadth-bar" aria-hidden="true">
+          <i
+            className="advance"
+            style={{ width: `${overview?.breadth?.advancePercent ?? 0}%` }}
+          />
+        </div>
+        <div className={`coverage-badge ${coverageTone}`}>
+          <strong>
+            {coverage?.verified ?? 0}/{coverage?.attempted ?? 0}
+          </strong>
+          <span>verified quotes</span>
+        </div>
+      </div>
+      <p className="breadth-note">
+        {overview?.breadth?.note ||
+          "Breadth is calculated over instruments with verified quotes in the attempted universe, not the whole exchange."}
+        {overview?.coverage?.freshness?.detail ? ` ${overview.coverage.freshness.detail}` : ""}
+      </p>
 
-        <section className="market-layout">
-          <div className="market-panel instruments-panel">
-            <div className="panel-toolbar">
-              <div><span className="section-kicker">YOUR MARKET</span><h2>Stocks <span className="stock-count">{visibleStocks.length}</span></h2></div>
-              <form className="instrument-search" onSubmit={searchProviderStocks}>
+      <CoverageBar compact />
+
+      <div className="market-layout">
+        <article className="market-panel instruments-panel">
+          <div className="panel-toolbar">
+            <div>
+              <span className="section-kicker">QUOTES &amp; UNIVERSE</span>
+              <h2>
+                {tab === "instruments" ? "Instrument master" : "Market detail"}
+                <span className="stock-count">{tab === "instruments" ? instruments?.total ?? "—" : overview?.breadth?.verified ?? 0}</span>
+              </h2>
+            </div>
+            {tab === "instruments" && (
+              <div className="instrument-search">
                 <span className="search-icon">⌕</span>
-                <input aria-label="Filter stocks" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter stocks or sectors" />
-                {query && <button type="button" className="clear-search" onClick={() => setQuery("")} aria-label="Clear filter">×</button>}
-                <button type="submit" className="provider-search" disabled={searching || query.trim().length < 2}>{searching ? "Searching…" : "Search market"}</button>
-              </form>
-            </div>
+                <input
+                  value={instrumentQuery}
+                  onChange={(event) => setInstrumentQuery(event.target.value)}
+                  placeholder="Symbol, company, exchange or asset type"
+                  aria-label="Search instrument master"
+                />
+                {instrumentQuery && (
+                  <button type="button" className="clear-search" onClick={() => setInstrumentQuery("")} aria-label="Clear search">
+                    ×
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
 
-            <div className="view-tabs" role="tablist" aria-label="Stock filters">
-              {[ ["all", "All stocks"], ["gainers", "Gainers"], ["losers", "Losers"], ["watchlist", "Watchlist"] ].map(([view, label]) => <button key={view} role="tab" aria-selected={activeView === view} className={activeView === view ? "view-tab active" : "view-tab"} onClick={() => setActiveView(view)}>{label}{view === "watchlist" && <span>{watchlist.length}</span>}</button>)}
-            </div>
+          <div className="view-tabs" role="tablist">
+            {TABS.map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={tab === id}
+                className={tab === id ? "view-tab active" : "view-tab"}
+                onClick={() => setTab(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
 
+          {tab === "movers" && (
             <div className="table-scroll">
               <table className="stocks-table">
-                <thead><tr><th>INSTRUMENT</th><th>LAST PRICE</th><th>CHANGE</th><th>VOLUME</th><th>EXCHANGE</th><th><span className="sr-only">Watchlist</span></th></tr></thead>
+                <thead>
+                  <tr>
+                    <th>INSTRUMENT</th>
+                    <th>PRICE</th>
+                    <th>CHANGE</th>
+                    <th>VOLUME</th>
+                    <th>PROVIDER</th>
+                    <th>RETRIEVED</th>
+                    <th />
+                  </tr>
+                </thead>
                 <tbody>
-                  {visibleStocks.map((stock) => {
-                    const quote = quotes[stock.symbol];
-                    const positive = Number(quote?.changePercent) >= 0;
-                    const saved = watchlist.includes(stock.symbol);
-                    return <tr key={`${stock.symbol}-${stock.exchange}`}>
-                      <td><button className="instrument-cell" onClick={() => selectStock(stock)}><span className="ticker-icon">{stock.symbol.replace(/[^A-Z]/g, "").slice(0, 2) || "IN"}</span><span className="instrument-text"><strong>{stock.symbol}</strong><small>{stock.name}</small></span></button></td>
-                      <td><span className="table-price">{money(quote?.price)}</span></td>
-                      <td><span className={quote ? `change-pill ${positive ? "positive" : "negative"}` : "not-quoted"}>{quote ? percent(quote.changePercent) : "—"}</span></td>
-                      <td className="volume-cell">{compactNumber(quote?.volume)}</td>
-                      <td><span className="exchange-tag">{stock.exchange}</span></td>
-                      <td><button className={saved ? "watch-star saved" : "watch-star"} onClick={() => toggleWatchlist(stock.symbol)} aria-label={saved ? `Remove ${stock.symbol} from watchlist` : `Add ${stock.symbol} to watchlist`} title={saved ? "Remove from watchlist" : "Add to watchlist"}>{saved ? "★" : "☆"}</button></td>
-                    </tr>;
-                  })}
-                  {!visibleStocks.length && <tr><td colSpan="6" className="table-empty">{activeView === "watchlist" ? "Your watchlist is empty. Star a stock to save it here." : "No stocks match this filter. Try provider search above."}</td></tr>}
+                  {[...(overview?.gainers || []), ...(overview?.losers || [])].map((entry) => (
+                    <tr key={`${entry.id}-${entry.quote?.changePercent}`}>
+                      <td>
+                        <button className="instrument-cell" type="button" onClick={() => onNavigate?.("charts", asInstrument(entry))}>
+                          <span className="ticker-icon">{entry.symbol.slice(0, 2)}</span>
+                          <span className="instrument-text">
+                            <strong>{entry.symbol}</strong>
+                            <small>{entry.name}</small>
+                          </span>
+                        </button>
+                      </td>
+                      <td className="table-price">{formatMoney(entry.quote?.price, entry.quote?.currency)}</td>
+                      <td>
+                        <span className={`change-pill ${Number(entry.quote?.changePercent) >= 0 ? "positive" : "negative"}`}>
+                          {formatPercent(entry.quote?.changePercent)}
+                        </span>
+                      </td>
+                      <td className="volume-cell">{compactVolume(entry.quote?.volume)}</td>
+                      <td className="not-quoted">{entry.quote?.source}</td>
+                      <td className="not-quoted">{formatTime(entry.quote?.providerTimestamp || entry.quote?.retrievedAt)}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className={watchKeys.has(entry.id) ? "watch-star saved" : "watch-star"}
+                          onClick={() => toggleWatch(entry)}
+                          aria-label="Toggle watchlist"
+                        >
+                          ★
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {!overview?.gainers?.length && !overview?.losers?.length && (
+                    <tr>
+                      <td colSpan="7" className="table-empty">
+                        No verified quotes are available for movers. Check the coverage panel for provider failures.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+              <div className="table-footer">
+                <span>VOLUME LEADERS: {(overview?.volumeLeaders || []).map((entry) => entry.symbol).join(" · ") || "—"}</span>
+                <span>NO FABRICATED PRICES · DELAYED PROVIDER TIERS</span>
+              </div>
+            </div>
+          )}
+
+          {tab === "heatmap" && (
+            <div className="heatmap-wrap">
+              <div className="heatmap-grid">
+                {(overview?.heatmap || []).map((tile) => {
+                  const change = Number(tile.changePercent);
+                  const tone = !tile.verified
+                    ? "unverified"
+                    : change > 0
+                      ? "up"
+                      : change < 0
+                        ? "down"
+                        : "flat";
+                  return (
+                    <button
+                      key={tile.id}
+                      type="button"
+                      className={`heat-tile ${tone}`}
+                      style={tile.verified ? { opacity: Math.min(1, 0.45 + Math.abs(change) / 6) } : undefined}
+                      onClick={() => onNavigate?.("charts", { id: tile.id, symbol: tile.symbol, name: tile.symbol, exchange: "NSE", currency: tile.currency })}
+                      title={`${tile.symbol} · ${tile.sector}${tile.verified ? "" : " · no verified quote"}`}
+                    >
+                      <strong>{tile.symbol}</strong>
+                      <span>{tile.verified ? formatPercent(tile.changePercent) : "unverified"}</span>
+                      <small>{tile.sector}</small>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="table-footer">
+                <span>Tile intensity reflects absolute change; unverified instruments are explicitly muted.</span>
+                <span>SECTOR: {(overview?.sectors || []).length} WITH VERIFIED MEMBERS</span>
+              </div>
+            </div>
+          )}
+
+          {tab === "sectors" && (
+            <div className="table-scroll">
+              <table className="stocks-table">
+                <thead>
+                  <tr>
+                    <th>SECTOR</th>
+                    <th>AVG CHANGE</th>
+                    <th>MEMBERS</th>
+                    <th>ADV / DEC</th>
+                    <th>INSTRUMENTS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(overview?.sectors || []).map((sector) => (
+                    <tr key={sector.sector}>
+                      <td>{sector.sector}</td>
+                      <td>
+                        <span className={`change-pill ${Number(sector.averageChangePercent) >= 0 ? "positive" : "negative"}`}>
+                          {formatPercent(sector.averageChangePercent)}
+                        </span>
+                      </td>
+                      <td>{sector.count}</td>
+                      <td>
+                        <span className="positive-text">{sector.advancers}</span> / <span className="negative-text">{sector.decliners}</span>
+                      </td>
+                      <td className="not-quoted">{sector.instruments.join(" · ")}</td>
+                    </tr>
+                  ))}
+                  {!overview?.sectors?.length && (
+                    <tr>
+                      <td colSpan="5" className="table-empty">No sector aggregation is possible without verified quotes.</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
-            <div className="table-footer"><span>Showing {visibleStocks.length} of {allStocks.length} popular listings</span><span>Prices only shown when verified by a provider</span></div>
-          </div>
+          )}
 
-          <aside className="side-column">
-            <section className="market-panel side-panel">
-              <div className="side-panel-heading"><div><span className="section-kicker">PERSONAL</span><h2>Watchlist</h2></div><button className="text-action" onClick={() => setActiveView("watchlist")}>View all ↗</button></div>
-              {watchlist.length ? <div className="side-list">{allStocks.filter((stock) => watchlist.includes(stock.symbol)).slice(0, 5).map((stock) => <button className="side-stock" key={stock.symbol} onClick={() => selectStock(stock)}><span className="ticker-icon small">{stock.symbol.replace(/[^A-Z]/g, "").slice(0, 2) || "IN"}</span><span><strong>{stock.symbol}</strong><small>{stock.name}</small></span><b>{money(quotes[stock.symbol]?.price)}</b></button>)}</div> : <div className="side-empty"><span className="bookmark-icon">☆</span><strong>Build your watchlist</strong><p>Star any stock in the table to keep it close.</p></div>}
-            </section>
+          {tab === "instruments" && (
+            <>
+              <div className="filter-row">
+                <label>
+                  <span>ASSET TYPE</span>
+                  <select value={instrumentType} onChange={(event) => setInstrumentType(event.target.value)}>
+                    <option value="">All</option>
+                    {["equity", "index", "etf"].map((type) => (
+                      <option key={type} value={type}>{ASSET_LABELS[type]}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>EXCHANGE</span>
+                  <select value={instrumentExchange} onChange={(event) => setInstrumentExchange(event.target.value)}>
+                    <option value="">All</option>
+                    {["NSE", "BSE", "NASDAQ", "NYSE"].map((exchange) => (
+                      <option key={exchange} value={exchange}>{exchange}</option>
+                    ))}
+                  </select>
+                </label>
+                <span className="filter-note">
+                  {instruments ? `${instruments.total} matched · directory ${instruments.directory?.status || "unfetched"}` : "loading…"}
+                </span>
+              </div>
+              <div className="table-scroll">
+                <table className="stocks-table">
+                  <thead>
+                    <tr>
+                      <th>INSTRUMENT</th>
+                      <th>TYPE</th>
+                      <th>EXCHANGE</th>
+                      <th>QUOTE</th>
+                      <th>LAST VERIFIED</th>
+                      <th>PROVIDERS</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(instruments?.instruments || []).map((instrument) => {
+                      const availability = availabilityLabel(instrument);
+                      return (
+                        <tr key={instrument.id}>
+                          <td>
+                            <button className="instrument-cell" type="button" onClick={() => onNavigate?.("charts", instrument)}>
+                              <span className="ticker-icon">{instrument.symbol.slice(0, 2)}</span>
+                              <span className="instrument-text">
+                                <strong>{instrument.symbol}</strong>
+                                <small>{instrument.name}</small>
+                              </span>
+                            </button>
+                          </td>
+                          <td>{ASSET_LABELS[instrument.assetType] || instrument.assetType}</td>
+                          <td><span className="exchange-tag">{instrument.exchange}</span></td>
+                          <td>
+                            <span className={`availability-pill ${availability.tone}`}>{availability.label}</span>
+                          </td>
+                          <td className="not-quoted">{instrument.availability?.lastQuoteAt ? formatTime(instrument.availability.lastQuoteAt) : "not observed"}</td>
+                          <td className="not-quoted">
+                            {instrument.availability?.quoteProviders?.length
+                              ? instrument.availability.quoteProviders.join(", ")
+                              : instrument.availability?.mappedProviders?.length
+                                ? `${instrument.availability.mappedProviders.join(", ")} (unconfigured)`
+                                : "none mapped"}
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              className={watchKeys.has(instrument.id) ? "watch-star saved" : "watch-star"}
+                              onClick={() => toggleWatch(instrument)}
+                              aria-label="Toggle watchlist"
+                            >
+                              ★
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {!instrumentLoading && !instruments?.instruments?.length && (
+                      <tr>
+                        <td colSpan="7" className="table-empty">
+                          {instruments?.error || "No instruments match this query."}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+                <div className="table-footer">
+                  <span>
+                    PAGE {page + 1} · {instrumentLoading ? "LOADING" : `${instruments?.count ?? 0} SHOWN`}
+                  </span>
+                  <span className="pager">
+                    <button type="button" onClick={() => setPage((value) => Math.max(0, value - 1))} disabled={page === 0}>
+                      ← Prev
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPage((value) => value + 1)}
+                      disabled={!instruments || (page + 1) * pageSize >= instruments.total}
+                    >
+                      Next →
+                    </button>
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
+        </article>
 
-            <section className="market-panel side-panel movers-panel">
-              <div className="side-panel-heading"><div><span className="section-kicker">PROVIDER DATA</span><h2>Top movers</h2></div><span className="live-tag"><i />{quoteCount ? "LIVE" : "—"}</span></div>
-              {movers.length ? <div className="mover-list">{[...movers.slice(0, 3), ...movers.slice(-2).reverse()].filter((stock, index, items) => items.findIndex((item) => item.symbol === stock.symbol) === index).map((stock) => <button className="mover-row" key={stock.symbol} onClick={() => selectStock(stock)}><span className="mover-symbol">{stock.symbol}</span><span className="mover-name">{stock.name}</span><span className={Number(stock.changePercent) >= 0 ? "mover-change positive-text" : "mover-change negative-text"}>{percent(stock.changePercent)}</span></button>)}</div> : <div className="side-empty compact"><strong>Waiting for verified prices</strong><p>Connect a market-data provider to populate live movers.</p></div>}
-            </section>
+        <aside className="side-column">
+          <article className="market-panel side-panel">
+            <div className="side-panel-heading">
+              <div>
+                <span className="section-kicker">BROWSER-STORED</span>
+                <h2>Watchlist</h2>
+              </div>
+              <span className="chip muted">{watchlist.length}</span>
+            </div>
+            {watchlist.length ? (
+              <div className="side-list">
+                {watchlist.map((entry) => {
+                  const quote = watchQuotes[`${entry.symbol}|${entry.exchange || "NSE"}`] || null;
+                  return (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      className="side-stock"
+                      onClick={() => onNavigate?.("charts", entry)}
+                    >
+                      <span className="ticker-icon small">{entry.symbol.slice(0, 2)}</span>
+                      <span>
+                        <strong>{entry.symbol}</strong>
+                        <small>{entry.name}</small>
+                      </span>
+                      <b className={quote ? "" : "not-quoted"}>
+                        {quote ? formatMoney(quote.price, quote.currency) : "—"}
+                      </b>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="side-empty compact">
+                <strong>No instruments yet</strong>
+                <p>Star an instrument in the table or search the master. Stored in this browser only.</p>
+                <div className="side-search">
+                  <InstrumentSearch compact onSelect={toggleWatch} placeholder="Add an instrument" />
+                </div>
+              </div>
+            )}
+            {watchError && <p className="muted-note">{watchError}</p>}
+            {watchlist.length > 0 && (
+              <div className="side-search">
+                <InstrumentSearch compact onSelect={toggleWatch} placeholder="Add another instrument" />
+              </div>
+            )}
+          </article>
 
-            <div className="integrity-card"><span className="integrity-icon">✓</span><div><strong>Verified data only</strong><p>Unavailable prices stay blank. MarketLens never fills gaps with estimates.</p></div></div>
-          </aside>
-        </section>
+          <article className="market-panel side-panel">
+            <div className="side-panel-heading">
+              <div>
+                <span className="section-kicker">DATA HONESTY</span>
+                <h2>Coverage</h2>
+              </div>
+              <span className={`chip ${coverageTone === "ok" ? "" : "warning"}`}>{coverage?.status?.replaceAll("-", " ") || "—"}</span>
+            </div>
+            <dl className="mini-metrics">
+              <div><dt>Catalogued</dt><dd>{coverage?.instrumentMatrix?.catalogued ?? "—"}</dd></div>
+              <div><dt>Quote-capable</dt><dd>{coverage?.instrumentMatrix?.quoteEnabled ?? "—"}</dd></div>
+              <div><dt>Verified now</dt><dd>{coverage?.instrumentMatrix?.verifiedLatestQuote ?? "—"}</dd></div>
+              <div><dt>Candle-capable</dt><dd>{coverage?.instrumentMatrix?.candleEnabled ?? "—"}</dd></div>
+            </dl>
+            <p className="muted-note">{overview?.coverage?.freshness?.detail}</p>
+            {!!overview?.coverage?.providerFailures?.length && (
+              <>
+                <h3 className="sub-heading">Provider failures</h3>
+                <ul className="failure-list">
+                  {overview.coverage.providerFailures.map((failure) => (
+                    <li key={failure.provider}>
+                      <strong>{failure.provider}</strong>
+                      <span>{failure.failures} failed</span>
+                      <small>{failure.example}</small>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            <div className="integrity-card">
+              <span className="integrity-icon">i</span>
+              <div>
+                <strong>No synthetic data</strong>
+                <p>A configured provider is not proof of a quote. Only recent successful observations are labelled verified.</p>
+              </div>
+            </div>
+          </article>
+        </aside>
+      </div>
 
-        <footer className="dashboard-footer"><span>MARKETLENS <i>·</i> MARKET RESEARCH TERMINAL</span><span>Popular NSE list is curated, not the complete NSE/BSE security master. Not investment advice.</span></footer>
-      {selected && <div className="modal-backdrop" onClick={() => { if (!quoteLoading && !analyzing) { setSelected(null); setAnalysis(null); } }}>
-        <section className="quote-modal" role="dialog" aria-modal="true" aria-labelledby="quote-title" onClick={(event) => event.stopPropagation()}>
-          <button className="modal-close" onClick={() => { setSelected(null); setAnalysis(null); }} aria-label="Close quote">×</button>
-          {selected.loading || quoteLoading ? <div className="modal-loading"><span className="loader" />Loading provider-verified quote…</div> : selected.quoteError ? <><span className="section-kicker">QUOTE UNAVAILABLE</span><h2 id="quote-title">{selected.symbol}</h2><div className="market-notice modal-notice"><span>!</span><p>{selected.quoteError}</p></div><p className="modal-footnote">Prices are not estimated when a provider cannot verify them.</p></> : selected.mode === "verified" ? <>
-            <div className="modal-kicker"><span className="verified-mark">✓</span> VERIFIED QUOTE · {selected.exchange}</div>
-            <h2 id="quote-title">{selected.name || selected.symbol}</h2>
-            <div className="quote-symbol">{selected.symbol}</div>
-            <div className="modal-price-line"><strong>{money(selected.price)}</strong><span className={Number(selected.changePercent) >= 0 ? "positive-text" : "negative-text"}>{percent(selected.changePercent)}</span></div>
-            <div className="quote-metrics"><div><small>OPEN</small><strong>{money(selected.open)}</strong></div><div><small>PREVIOUS CLOSE</small><strong>{money(selected.previousClose)}</strong></div><div><small>DAY HIGH</small><strong>{money(selected.dayHigh)}</strong></div><div><small>DAY LOW</small><strong>{money(selected.dayLow)}</strong></div><div><small>VOLUME</small><strong>{compactNumber(selected.volume)}</strong></div><div><small>SOURCE</small><strong>{selected.source || "Provider"}</strong></div></div>
-            <p className="quote-updated">Updated {selected.updatedAt ? new Date(selected.updatedAt).toLocaleString("en-IN") : "time not supplied"}</p>
-            <button className="analyze-button" onClick={analyzeStock} disabled={analyzing}>{analyzing ? "Preparing analysis…" : "Explain this quote with AI"}<span>↗</span></button>
-            {analysisError && <div className="api-error compact-error">{analysisError}</div>}
-            {analysis && <div className="analysis-card"><span className="section-kicker">AI · VERIFIED DATA ONLY</span><h3>{analysis.headline || "Market analysis"}</h3><p>{analysis.summary}</p><strong>Market read</strong><p>{analysis.marketRead}</p><strong>Risks and uncertainty</strong><p>{Array.isArray(analysis.risks) ? analysis.risks.join(" · ") : analysis.risks}</p><strong>What to monitor</strong><p>{Array.isArray(analysis.whatToMonitor) ? analysis.whatToMonitor.join(" · ") : analysis.whatToMonitor}</p><small>{analysis.limitations}</small></div>}
-          </> : null}
-        </section>
-      </div>}
-    </div>
+      <footer className="dashboard-footer">
+        <span>MARKET LENS · RESEARCH &amp; INTELLIGENCE · NOT INVESTMENT ADVICE</span>
+        <span>
+          QUOTES {overview?.coverage?.verified ?? 0}/{overview?.coverage?.attempted ?? 0} VERIFIED
+          <i>·</i>
+          {overview?.market?.label || "session unknown"}
+          <i>·</i>
+          HOLIDAY CALENDAR {overview?.market?.holidayCalendar || "unverified"}
+        </span>
+      </footer>
+    </section>
   );
 }

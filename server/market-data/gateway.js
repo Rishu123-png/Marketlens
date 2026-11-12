@@ -9,9 +9,13 @@
 
 import { instrumentFromSymbol } from "../../shared/instruments/catalog.js";
 import { quoteSchema } from "../../shared/schemas/quote.js";
+import { validateQuoteIdentity } from "./identity.js";
+import { recordQuoteObservation } from "./observations.js";
 import { getProviderOrder, getProviders } from "./providers/index.js";
 
 const DEFAULT_CACHE_TTL_MS = 60_000;
+const DEFAULT_BUDGET_MS = 25_000;
+const PER_PROVIDER_TIMEOUT_MS = 10_000;
 const MAX_CACHE_ENTRIES = 500;
 const SYMBOL_PATTERN = /^\^?[A-Z0-9._:&-]{1,40}$/;
 
@@ -65,9 +69,16 @@ export async function getVerifiedQuote(target, options = {}) {
 
   const providers = options.providers || getProviders(getProviderOrder(options.primary));
   const errors = [];
+  const budgetMs = Number(options.budgetMs) > 0 ? Number(options.budgetMs) : DEFAULT_BUDGET_MS;
+  const startedAt = Date.now();
 
   for (let index = 0; index < providers.length; index += 1) {
     const provider = providers[index];
+    const remaining = budgetMs - (Date.now() - startedAt);
+    if (remaining <= 0) {
+      errors.push({ provider: provider.id, message: "Quote budget exhausted before this provider was tried." });
+      continue;
+    }
 
     if (!provider.supports(instrument)) {
       errors.push({
@@ -77,11 +88,29 @@ export async function getVerifiedQuote(target, options = {}) {
       continue;
     }
 
+    let quote;
+    let timer = null;
     try {
-      const quote = await provider.fetchQuote(instrument);
+      // A single slow provider must not consume the whole serverless request.
+      const timeoutMs = Math.min(remaining, PER_PROVIDER_TIMEOUT_MS);
+      const timeoutPromise = new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${provider.id} exceeded ${timeoutMs} ms.`)),
+          timeoutMs
+        );
+        timer.unref?.();
+      });
+      quote = await Promise.race([provider.fetchQuote(instrument), timeoutPromise]);
 
       if (quote.quoteVerified !== true || quote.price === null) {
         throw new Error(`${provider.id} returned no verified price.`);
+      }
+
+      // Identity first: a structurally valid quote for the wrong listing is
+      // worse than no quote, because it looks trustworthy.
+      const identity = validateQuoteIdentity(instrument, quote);
+      if (!identity.ok) {
+        throw new Error(`${provider.id} quote failed identity validation: ${identity.reason}`);
       }
 
       // Enforce the quote contract at the provider boundary. A drifted adapter
@@ -100,22 +129,39 @@ export async function getVerifiedQuote(target, options = {}) {
         source: quote.source || provider.label,
         cached: false,
         fallbackUsed: index > 0,
-        providerErrors: errors
+        providerErrors: errors,
+        identity: identity.checks
       };
 
       remember(cacheKey, data);
+      recordQuoteObservation({
+        instrumentId: instrument.id,
+        provider: data.provider,
+        ok: true,
+        quote: data
+      });
       return data;
     } catch (error) {
       errors.push({
         provider: provider.id,
         message: error instanceof Error ? error.message : "Unknown provider error"
       });
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 
   const error = new Error("No configured provider could return a verified quote for this stock.");
   error.statusCode = 503;
   error.details = errors;
+  error.providerErrors = errors;
+  recordQuoteObservation({
+    instrumentId: instrument.id,
+    provider: errors.at(-1)?.provider ?? null,
+    ok: false,
+    error,
+    quote: null
+  });
   throw error;
 }
 

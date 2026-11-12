@@ -13,8 +13,50 @@
 import { getInstrument, instrumentFromSymbol } from "../../shared/instruments/catalog.js";
 import { candleSchema } from "../../shared/schemas/candle.js";
 import { getProviderOrder, getProviders } from "./providers/index.js";
+import { recordCandleObservation } from "./observations.js";
 
-export const INTERVALS = Object.freeze(["1min", "5min", "15min", "30min", "1h", "1day", "1week", "1month"]);
+export const INTERVALS = Object.freeze(["1min", "5min", "15min", "30min", "1h", "4h", "1day", "1week", "1month"]);
+
+const PROVIDER_INTERVAL = Object.freeze({ "4h": "1h" });
+const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
+
+/**
+ * Aggregate hourly candles into 4-hour buckets. Buckets are aligned to UTC
+ * midnight; the response states that alignment. A partial bucket at the end is
+ * kept only when it has at least one candle, and is marked as partial.
+ */
+export function aggregateFourHour(candles) {
+  const buckets = new Map();
+
+  for (const candle of candles) {
+    const parsed = Date.parse(String(candle.time).replace(" ", "T"));
+    if (!Number.isFinite(parsed)) continue;
+    const bucket = Math.floor(parsed / FOUR_HOURS_MS) * FOUR_HOURS_MS;
+    const existing = buckets.get(bucket);
+
+    if (!existing) {
+      buckets.set(bucket, {
+        time: new Date(bucket).toISOString(),
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+        volume: Number.isFinite(candle.volume) ? candle.volume : null,
+        source: candle.source
+      });
+    } else {
+      existing.high = Math.max(existing.high, candle.high);
+      existing.low = Math.min(existing.low, candle.low);
+      existing.close = candle.close;
+      existing.volume =
+        existing.volume === null || candle.volume === null
+          ? existing.volume ?? candle.volume
+          : existing.volume + candle.volume;
+    }
+  }
+
+  return [...buckets.values()].sort((a, b) => a.time.localeCompare(b.time));
+}
 export const DEFAULT_CACHE_TTL_MS = 5 * 60 * 1000;
 export const MAX_LIMIT = 1000;
 
@@ -76,7 +118,10 @@ export async function getCandles(target, options = {}) {
     }
 
     try {
-      const rows = await provider.fetchCandles(instrument, { interval, limit });
+      const providerInterval = PROVIDER_INTERVAL[interval] || interval;
+      const fetchLimit = providerInterval === interval ? limit : Math.min(5000, limit * 4 + 8);
+      const rawRows = await provider.fetchCandles(instrument, { interval: providerInterval, limit: fetchLimit });
+      const rows = providerInterval === interval ? rawRows : aggregateFourHour(rawRows);
       if (!Array.isArray(rows) || rows.length === 0) {
         errors.push({ provider: provider.id, message: "Provider returned no candles." });
         continue;
@@ -100,6 +145,13 @@ export async function getCandles(target, options = {}) {
         errors.push({ provider: provider.id, message: "Provider returned no valid candles." });
         continue;
       }
+
+      recordCandleObservation({
+        instrumentId: instrument.id,
+        provider: provider.id,
+        ok: true,
+        candles: trimmed
+      });
 
       const data = {
         instrument,
@@ -136,6 +188,13 @@ export async function getCandles(target, options = {}) {
       });
     }
   }
+
+  recordCandleObservation({
+    instrumentId: instrument.id,
+    provider: errors.at(-1)?.provider ?? null,
+    ok: false,
+    error: new Error(errors.map((entry) => `${entry.provider}: ${entry.message}`).join("; "))
+  });
 
   const error = new Error("No configured provider could return historical candles for this instrument.");
   error.statusCode = 503;

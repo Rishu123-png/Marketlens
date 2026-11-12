@@ -130,7 +130,7 @@ test("worker endpoint requires a configured secret and a matching header", async
   const unconfigured = mockResponse();
   await workerHandler({ method: "POST", body: { jobId: "research_x" }, headers: {} }, unconfigured);
   assert.equal(unconfigured.statusCode, 503);
-  assert.equal(unconfigured.body.configuration, "WORKER_SECRET");
+  assert.deepEqual(unconfigured.body.configuration, ["WORKER_SECRET", "QSTASH_CURRENT_SIGNING_KEY"]);
 
   await withEnvironment({ WORKER_SECRET: "worker-secret" }, async () => {
     const unauthorized = mockResponse();
@@ -143,5 +143,50 @@ test("worker endpoint requires a configured secret and a matching header", async
       unknownJob
     );
     assert.equal(unknownJob.statusCode, 404);
+  });
+});
+
+test("an owned research job is invisible to another browser identity", async () => {
+  freshState();
+  await withEnvironment({ GROQ_API_KEY: "test-key", QSTASH_TOKEN: undefined, WORKER_URL: undefined }, async () => {
+    const ownerA = "a".repeat(48);
+    const ownerB = "b".repeat(48);
+
+    const created = mockResponse();
+    await researchHandler(
+      { method: "POST", body: { symbol: "TCS", depth: "quick" }, headers: { "x-owner-id": ownerA } },
+      created
+    );
+    assert.equal(created.statusCode, 202);
+
+    const asOwner = mockResponse();
+    await jobDetailHandler(
+      { method: "GET", query: { jobId: created.body.jobId }, headers: { "x-owner-id": ownerA } },
+      asOwner
+    );
+    assert.equal(asOwner.statusCode, 200);
+
+    const asStranger = mockResponse();
+    await jobDetailHandler(
+      { method: "GET", query: { jobId: created.body.jobId }, headers: { "x-owner-id": ownerB } },
+      asStranger
+    );
+    assert.equal(asStranger.statusCode, 404, "a stranger must not be told the job exists");
+
+    const anonymous = mockResponse();
+    await jobDetailHandler({ method: "GET", query: { jobId: created.body.jobId }, headers: {} }, anonymous);
+    assert.equal(anonymous.statusCode, 404);
+
+    const ownerList = mockResponse();
+    await jobsHandler({ query: {}, headers: { "x-owner-id": ownerA } }, ownerList);
+    assert.equal(ownerList.body.jobs.length, 1);
+
+    const strangerList = mockResponse();
+    await jobsHandler({ query: {}, headers: { "x-owner-id": ownerB } }, strangerList);
+    assert.equal(strangerList.body.jobs.length, 0);
+
+    const anonymousList = mockResponse();
+    await jobsHandler({ query: {}, headers: {} }, anonymousList);
+    assert.equal(anonymousList.body.jobs.length, 0, "anonymous listing must not expose owned jobs");
   });
 });

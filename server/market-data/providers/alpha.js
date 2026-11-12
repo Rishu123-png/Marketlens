@@ -4,12 +4,17 @@ import { resolveProviderSymbol } from "../../../shared/instruments/catalog.js";
 
 const SOURCE = "Alpha Vantage";
 
+/**
+ * Alpha Vantage addresses Indian listings with an exchange suffix. Try the
+ * instrument's own venue first, then the other Indian venue; never the bare
+ * ticker, which resolves to a non-Indian listing.
+ */
 function symbolCandidates(instrument) {
   const mapped = resolveProviderSymbol(instrument, "alpha");
   if (!mapped) return [];
-  const candidates = [mapped];
-  if (instrument.country === "IN") candidates.push(`${instrument.symbol}.BSE`);
-  return [...new Set(candidates)];
+  if (instrument.country !== "IN") return [mapped];
+  const other = instrument.exchange.includes("BSE") ? "NSE" : "BSE";
+  return [...new Set([mapped, `${instrument.symbol}.${other}`])];
 }
 
 export const alphaProvider = {

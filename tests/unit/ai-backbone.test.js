@@ -75,3 +75,33 @@ test("coverage summary travels inside the agent evidence envelope", () => {
   });
   assert.equal(withoutCoverage.quality.coverage, null);
 });
+
+test("evidence envelope carries deterministic structure and provider freshness", () => {
+  const envelope = buildEvidenceEnvelope({
+    instrument: { id: "IN-EQ-TCS", symbol: "TCS", exchange: "NSE", currency: "INR" },
+    depth: "standard",
+    quote: {
+      price: 4120.5,
+      currency: "INR",
+      providerTimestamp: "2026-11-12T09:58:00.000Z",
+      provider: "twelve",
+      freshness: "verified"
+    },
+    structure: {
+      engineVersion: "1.0.0",
+      interval: "1day",
+      candles: 120,
+      lastClose: 4120.5,
+      signals: [{ type: "BOS", direction: "bullish", rule: "close above prior swing high" }],
+      supportResistance: [{ kind: "support", price: 3980 }],
+      rules: ["signals use closed candles only"],
+      limitations: ["Hypotheses, not institutional order flow."]
+    }
+  });
+
+  assert.equal(envelope.marketContext.quote.providerTimestamp, "2026-11-12T09:58:00.000Z");
+  assert.equal(envelope.marketContext.quote.freshness, "verified");
+  assert.equal(envelope.structure.signals[0].type, "BOS");
+  assert.equal(envelope.structure.interval, "1day");
+  assert.equal(envelope.structure.lastClose, 4120.5);
+});

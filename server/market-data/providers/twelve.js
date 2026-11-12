@@ -71,6 +71,15 @@ export const twelveProvider = {
       throw new Error("Twelve Data returned no candles.");
     }
 
+    // Candle identity: a series in another currency/exchange would silently
+    // produce indicators on the wrong instrument.
+    const metaCurrency = String(data?.meta?.currency || "").toUpperCase();
+    if (metaCurrency && instrument.currency && metaCurrency !== instrument.currency) {
+      throw new Error(
+        `Twelve Data returned ${metaCurrency} candles for an instrument denominated in ${instrument.currency}.`
+      );
+    }
+
     return data.values
       .map((row) => normalizeCandle({ ...row, datetime: row.datetime }, SOURCE))
       .filter(Boolean)

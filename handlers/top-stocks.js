@@ -1,6 +1,7 @@
 import { getInstrument, POPULAR_INDIAN_EQUITY_IDS } from "../shared/instruments/catalog.js";
 import { getVerifiedQuote, mapConcurrent } from "../server/market-data/gateway.js";
 import { rateLimit } from "../lib/server/rateLimit.js";
+import { observationSnapshot } from "../server/market-data/observations.js";
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -83,11 +84,29 @@ export default async function handler(req, res) {
     });
   }
 
+  const snapshot = observationSnapshot();
   const response = {
     generatedAt: new Date().toISOString(),
     marketStatus: "Popular Indian stocks with successfully verified provider quotes.",
     universeSize: universe.length,
     verifiedCount: ranked.length,
+    unverifiedCount: universe.length - ranked.length,
+    coverage: {
+      attempted: universe.length,
+      verified: ranked.length,
+      verifiedPercent: universe.length ? Number(((ranked.length / universe.length) * 100).toFixed(1)) : 0,
+      label:
+        ranked.length === 0
+          ? "no verified quotes"
+          : ranked.length < universe.length / 2
+            ? "low coverage"
+            : ranked.length < universe.length
+              ? "partial coverage"
+              : "full coverage",
+      freshness: "delayed",
+      observationPersistence: "per-instance; resets on cold start",
+      lastSuccessfulQuoteAt: snapshot.quotes.lastSuccessAt
+    },
     stocks: ranked
   };
 

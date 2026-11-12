@@ -5,6 +5,7 @@ import { getInstrument, instrumentFromSymbol } from "../shared/instruments/catal
 import { getJobStore, resolveJobStore } from "../server/jobs/store.js";
 import { getQueue, queueStatus } from "../server/jobs/queue.js";
 import { rateLimit } from "../lib/server/rateLimit.js";
+import { ownerFromRequest, ownerHash } from "../server/jobs/access.js";
 
 function readBody(req) {
   if (!req.body) return {};
@@ -67,6 +68,11 @@ export default async function handler(req, res) {
     historyPeriod: body.historyPeriod || "1Y",
     newsLookbackDays: Number.isInteger(body.newsLookbackDays) ? body.newsLookbackDays : 30
   });
+
+  const owner = ownerFromRequest(req);
+  if (owner && typeof store.setOwner === "function") {
+    await store.setOwner(job.jobId, ownerHash(owner));
+  }
 
   job = await store.transition(job.jobId, "VALIDATING", { reason: "request validated" });
   job = await store.transition(job.jobId, "QUEUED", { reason: `queued for ${depth} research` });

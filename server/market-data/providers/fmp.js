@@ -5,14 +5,16 @@ import { resolveProviderSymbol } from "../../../shared/instruments/catalog.js";
 const SOURCE = "Financial Modeling Prep";
 
 /**
- * FMP lists Indian equities with an exchange suffix (.NS / .BO). Try the mapped
- * ticker first, then the bare symbol for instruments quoted without a suffix.
+ * FMP lists Indian equities with an exchange suffix (.NS / .BO).
+ *
+ * The bare ticker is deliberately NOT tried as a fallback: `TCS` on FMP is The
+ * Container Store (NYSE, USD), so falling back to it produced a plausible but
+ * completely wrong price for Tata Consultancy Services. A missing NSE/BSE
+ * listing is a provider limitation, not a reason to quote another company.
  */
 function symbolCandidates(instrument) {
   const mapped = resolveProviderSymbol(instrument, "fmp");
-  if (!mapped) return [];
-  if (instrument.assetType !== "equity" || instrument.country !== "IN") return [mapped];
-  return [...new Set([mapped, instrument.symbol])];
+  return mapped ? [mapped] : [];
 }
 
 export const fmpProvider = {

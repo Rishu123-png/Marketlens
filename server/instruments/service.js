@@ -1,0 +1,262 @@
+/**
+ * Instrument master service.
+ *
+ * Owns the merge between the bundled catalogue and any provider directory, the
+ * per-instrument provider availability view, and the coverage matrix. Every
+ * label is derived from configuration plus observed calls; nothing here implies
+ * that a catalogued instrument has a live quote.
+ */
+
+import {
+  INSTRUMENTS,
+  getInstrument,
+  instrumentFromSymbol,
+  resolveProviderSymbol
+} from "../../shared/instruments/catalog.js";
+import { getProviders } from "../market-data/providers/index.js";
+import { candleObservation, observationSnapshot, quoteObservation, quoteObservationRows } from "../market-data/observations.js";
+import { directoryStatus, getDirectory } from "./directory.js";
+
+export const INSTRUMENT_SERVICE_VERSION = "1.0.0";
+const FRESH_MS = 15 * 60 * 1000;
+
+export const ASSET_TYPES = Object.freeze(["equity", "index", "etf", "mutualfund", "future", "option"]);
+export const EXCHANGES = Object.freeze(["NSE", "BSE", "NASDAQ", "NYSE", "AMEX", "INDEX"]);
+
+/** Configured providers and what each can do for this instrument. */
+export function instrumentAvailability(instrument) {
+  const providers = getProviders();
+  const mapped = providers.filter((provider) => provider.supports?.(instrument));
+  const configured = mapped.filter((provider) => provider.isConfigured?.());
+
+  return {
+    mappedProviders: mapped.map((provider) => provider.id),
+    configuredProviders: configured.map((provider) => provider.id),
+    quoteProviders: configured.filter((provider) => typeof provider.fetchQuote === "function").map((provider) => provider.id),
+    candleProviders: configured.filter((provider) => typeof provider.fetchCandles === "function").map((provider) => provider.id),
+    providerSymbols: Object.fromEntries(
+      mapped.map((provider) => [provider.id, resolveProviderSymbol(instrument, provider.id)])
+    )
+  };
+}
+
+function observedQuoteSummary(instrument) {
+  const observation = quoteObservation(instrument.id);
+  const fresh =
+    Boolean(observation?.verified && observation.lastSuccessAt) &&
+    Date.now() - Date.parse(observation.lastSuccessAt) <= FRESH_MS;
+  return {
+    verified: Boolean(observation?.verified && fresh),
+    lastAttemptAt: observation?.lastAttemptAt ?? null,
+    lastSuccessAt: observation?.lastSuccessAt ?? null,
+    lastError: observation?.lastError ?? null,
+    provider: observation?.lastProvider ?? null
+  };
+}
+
+export function publicInstrument(instrument, { availability = instrumentAvailability(instrument) } = {}) {
+  const quote = observedQuoteSummary(instrument);
+  const candle = candleObservation(instrument.id);
+  return {
+    id: instrument.id,
+    symbol: instrument.symbol,
+    name: instrument.name,
+    exchange: instrument.exchange,
+    country: instrument.country,
+    currency: instrument.currency,
+    assetType: instrument.assetType,
+    sector: instrument.sector,
+    source: instrument.source ?? "catalog",
+    availability: {
+      ...availability,
+      quoteEnabled: availability.quoteProviders.length > 0,
+      candleEnabled: availability.candleProviders.length > 0,
+      quoteVerifiedRecently: quote.verified,
+      lastQuoteAt: quote.lastSuccessAt,
+      lastCandleAt: candle?.lastSuccessAt ?? null
+    }
+  };
+}
+
+function filterMatch(instrument, filters = {}) {
+  const currency = filters.currency ? String(filters.currency).toUpperCase() : "";
+  if (currency && instrument.currency !== currency) return false;
+  for (const key of ["country", "exchange", "assetType", "sector"]) {
+    const wanted = filters[key];
+    const values = (Array.isArray(wanted) ? wanted : [wanted]).filter(Boolean).map((value) => String(value).toUpperCase());
+    if (!values.length) continue;
+    if (!values.includes(String(instrument[key]).toUpperCase())) return false;
+  }
+  return true;
+}
+
+function scoreInstrument(instrument, needle) {
+  const symbol = instrument.symbol.replace(/^\^/, "").toUpperCase();
+  const name = instrument.name.toUpperCase();
+  const exchange = instrument.exchange.toUpperCase();
+  const type = instrument.assetType.toUpperCase();
+
+  if (symbol === needle) return 100;
+  if (symbol.startsWith(needle)) return 85;
+  if (name.startsWith(needle)) return 70;
+  if (name.includes(needle)) return 50;
+  if (symbol.includes(needle)) return 40;
+  if (exchange === needle) return 25;
+  if (type === needle) return 20;
+  if (instrument.sector.toUpperCase().includes(needle)) return 10;
+  return -1;
+}
+
+function directoryForSearch(directory) {
+  const known = new Set(INSTRUMENTS.map((instrument) => `${instrument.symbol}|${instrument.exchange}`));
+  return directory.instruments.filter((instrument) => !known.has(`${instrument.symbol}|${instrument.exchange}`));
+}
+
+/**
+ * Search the bundled catalogue and (optionally) the provider directory.
+ * `total` is the full match count before pagination.
+ */
+export async function searchInstrumentMaster(query, filters = {}, { limit = 50, offset = 0, includeDirectory = true } = {}) {
+  const needle = String(query || "").trim().toUpperCase();
+  const directory = includeDirectory ? await getDirectory() : { instruments: [], status: directoryStatus() };
+  const pool = [...INSTRUMENTS, ...directoryForSearch(directory)];
+
+  const matched = [];
+  for (const instrument of pool) {
+    if (!filterMatch(instrument, filters)) continue;
+    if (!needle) {
+      matched.push({ instrument, score: 0 });
+      continue;
+    }
+    const score = scoreInstrument(instrument, needle);
+    if (score >= 0) matched.push({ instrument, score });
+  }
+
+  if (needle) {
+    matched.sort(
+      (a, b) =>
+        b.score - a.score ||
+        a.instrument.symbol.localeCompare(b.instrument.symbol) ||
+        a.instrument.exchange.localeCompare(b.instrument.exchange)
+    );
+  }
+
+  const page = matched.slice(offset, offset + limit).map(({ instrument }) => publicInstrument(instrument));
+
+  return {
+    query: needle || null,
+    filters,
+    total: matched.length,
+    catalogSize: INSTRUMENTS.length,
+    directory: directory.status,
+    offset,
+    limit,
+    count: page.length,
+    instruments: page
+  };
+}
+
+export function resolveInstrumentTarget(target, exchange, { directory = [] } = {}) {
+  if (target && typeof target === "object") return target;
+  const value = String(target || "").trim();
+  if (!value) return null;
+  const known = getInstrument(value);
+  if (known) return known;
+  const match = directory.find(
+    (instrument) => instrument.symbol === value.toUpperCase() && (!exchange || instrument.exchange === String(exchange).toUpperCase())
+  );
+  return match || instrumentFromSymbol(value, exchange);
+}
+
+/**
+ * Data-coverage matrix.
+ *
+ * Directory data is only read from cache here: a coverage request must not wait
+ * on (or trigger) a provider download. Use `/api/instruments?refreshDirectory=1`
+ * to populate it explicitly.
+ */
+export function buildInstrumentMatrix({ now = () => new Date() } = {}) {
+  const generatedAt = now().toISOString();
+  const directory = directoryStatus();
+  const quoteRows = quoteObservationRows();
+  const snapshot = observationSnapshot();
+  const freshCutoff = Date.parse(generatedAt) - FRESH_MS;
+
+  const rows = INSTRUMENTS.map((instrument) => {
+    const availability = instrumentAvailability(instrument);
+    const observed = quoteObservation(instrument.id);
+    return {
+      instrument,
+      availability,
+      quoteObserved: Boolean(observed?.verified && observed.lastSuccessAt && Date.parse(observed.lastSuccessAt) >= freshCutoff),
+      failure: observed?.lastError ?? null
+    };
+  });
+
+  const count = (predicate) => rows.filter(predicate).length;
+  const supported = count((row) => row.availability.mappedProviders.length > 0);
+  const quoteEnabled = count((row) => row.availability.quoteProviders.length > 0);
+  const candleEnabled = count((row) => row.availability.candleProviders.length > 0);
+  const verified = count((row) => row.quoteObserved);
+
+  const failuresByProvider = {};
+  for (const row of quoteRows) {
+    if (!row.lastError) continue;
+    const key = row.lastProvider || "unknown";
+    failuresByProvider[key] = failuresByProvider[key] ?? { provider: key, failures: 0, example: row.lastError };
+    failuresByProvider[key].failures += 1;
+  }
+
+  return {
+    version: INSTRUMENT_SERVICE_VERSION,
+    generatedAt,
+    catalogued: INSTRUMENTS.length,
+    directory: {
+      ...directory,
+      mergedSize: INSTRUMENTS.length + directory.count
+    },
+    coverage: {
+      catalogued: INSTRUMENTS.length,
+      providerMapped: supported,
+      quoteEnabled,
+      quoteNotEnabled: INSTRUMENTS.length - quoteEnabled,
+      verifiedLatestQuote: verified,
+      candleEnabled,
+      candleObserved: snapshot.candles.withCandles,
+      newsQueryable: INSTRUMENTS.length,
+      realtime: 0
+    },
+    freshness: {
+      classification: "delayed",
+      detail:
+        "Configured quote vendors' free/developer tiers are delayed or end-of-day and are not exchange-licensed real-time feeds. No instrument is labelled real-time.",
+      lastSuccessfulQuoteAt: snapshot.quotes.lastSuccessAt,
+      lastSuccessfulCandleAt: snapshot.candles.lastSuccessAt,
+      observationWindowMinutes: snapshot.freshnessWindowMinutes
+    },
+    runtime: snapshot,
+    providerFailures: Object.values(failuresByProvider),
+    byExchange: Object.fromEntries(
+      [...new Set(INSTRUMENTS.map((instrument) => instrument.exchange))].sort().map((exchange) => [
+        exchange,
+        {
+          catalogued: INSTRUMENTS.filter((instrument) => instrument.exchange === exchange).length,
+          quoteEnabled: count((row) => row.instrument.exchange === exchange && row.availability.quoteProviders.length > 0),
+          verified: count((row) => row.instrument.exchange === exchange && row.quoteObserved)
+        }
+      ])
+    ),
+    honesty: {
+      cataloguedDoesNotMeanQuoted: true,
+      verifiedMeansObservedInThisInstance: true,
+      observationPersistence: "per-instance; resets on cold start",
+      note: "A configured provider counts as quote-enabled only if it maps the instrument; verified counts only recent successful observations."
+    }
+  };
+}
+
+export function listCatalog() {
+  return INSTRUMENTS.map((instrument) => publicInstrument(instrument));
+}
+
+export { INSTRUMENTS };

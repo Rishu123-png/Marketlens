@@ -21,7 +21,8 @@ export default async function handler(req, res) {
     if (res.headersSent) return;
     const status = error?.statusCode || 500;
     return res.status(status).json({
-      error: status === 500 ? "API request failed." : error.message
+      error: status === 500 ? "API request failed." : error.message,
+      requestId: req.requestId ?? null
     });
   }
 }

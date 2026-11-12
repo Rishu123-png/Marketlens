@@ -77,7 +77,14 @@ test("instruments endpoint validates filters and paginates", async () => {
   await withServer(async (base) => {
     const badType = await fetch(`${base}/api/instruments?assetType=crypto`);
     assert.equal(badType.status, 400);
-    assert.deepEqual((await badType.json()).supported, ["equity", "index", "etf"]);
+    assert.deepEqual((await badType.json()).supported, [
+      "equity",
+      "index",
+      "etf",
+      "mutualfund",
+      "future",
+      "option"
+    ]);
 
     const page = await (await fetch(`${base}/api/instruments?limit=5&offset=3`)).json();
     assert.equal(page.count, 5);
@@ -85,7 +92,7 @@ test("instruments endpoint validates filters and paginates", async () => {
     assert.equal(page.limit, 5);
 
     const oversized = await (await fetch(`${base}/api/instruments?limit=5000`)).json();
-    assert.equal(oversized.limit, 200);
+    assert.equal(oversized.limit, 500);
   });
 });
 
@@ -101,5 +108,20 @@ test("instrument discovery is rate limited", async () => {
     const body = await last.json();
     assert.match(body.error, /Too many instrument requests/);
     assert.ok(Number(last.headers.get("retry-after")) > 0);
+  });
+});
+
+test("quotes endpoint keeps NSE and BSE listings apart and validates venues", async () => {
+  await withServer(async (base) => {
+    const response = await fetch(`${base}/api/quotes?symbols=RELIANCE%40NSE,RELIANCE%40BSE`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.requested, 2);
+    const venues = body.failures.map((entry) => entry.exchange).sort();
+    assert.deepEqual(venues, ["BSE", "NSE"]);
+
+    const invalid = await fetch(`${base}/api/quotes?symbols=RELIANCE%40LSE`);
+    assert.equal(invalid.status, 400);
   });
 });

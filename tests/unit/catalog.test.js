@@ -16,7 +16,7 @@ test("every instrument has a unique stable id", () => {
   const ids = INSTRUMENTS.map((instrument) => instrument.id);
   assert.equal(new Set(ids).size, ids.length);
   for (const instrument of INSTRUMENTS) {
-    assert.match(instrument.id, /^(IN|US)-(EQ|IDX|ETF)-[A-Z0-9]+$/);
+    assert.match(instrument.id, /^(IN|US)-(EQ|IDX|ETF)-[A-Z0-9]+(-BSE)?$/);
   }
 });
 
@@ -34,6 +34,7 @@ test("the legacy popular list is still the curated 20 NSE equities", () => {
 test("catalog covers equities, indices and ETFs across two markets", () => {
   const types = new Set(INSTRUMENTS.map((instrument) => instrument.assetType));
   assert.deepEqual([...types].sort(), ["equity", "etf", "index"]);
+  assert.ok(INSTRUMENTS.length >= 100, "the bundled master is no longer a 40-instrument list");
 
   const countries = new Set(INSTRUMENTS.map((instrument) => instrument.country));
   assert.ok(countries.has("IN"));
@@ -57,7 +58,7 @@ test("provider tickers follow exchange conventions for Indian equities", () => {
   const reliance = getInstrument("IN-EQ-RELIANCE");
   assert.equal(resolveProviderSymbol(reliance, "fmp"), "RELIANCE.NS");
   assert.equal(resolveProviderSymbol(reliance, "twelve"), "NSE:RELIANCE");
-  assert.equal(resolveProviderSymbol(reliance, "alpha"), "RELIANCE");
+  assert.equal(resolveProviderSymbol(reliance, "alpha"), "RELIANCE.NSE");
 
   const apple = getInstrument("US-EQ-AAPL");
   assert.equal(resolveProviderSymbol(apple, "fmp"), "AAPL");
@@ -108,7 +109,7 @@ test("filters narrow the catalog by country, asset type and exchange", () => {
   const indianIndices = listInstruments({ country: "IN", assetType: "index" });
   assert.deepEqual(
     indianIndices.map((instrument) => instrument.id).sort(),
-    ["IN-IDX-NIFTY50", "IN-IDX-SENSEX"]
+    ["IN-IDX-NIFTY50", "IN-IDX-NIFTYBANK", "IN-IDX-NIFTYIT", "IN-IDX-SENSEX"]
   );
 
   const nasdaq = listInstruments({ exchange: "NASDAQ", assetType: "equity" });

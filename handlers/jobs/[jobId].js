@@ -1,6 +1,7 @@
 // Research job status, report and agent runs. Poll this after creating a job.
 import { JobNotFoundError, resolveJobStore } from "../../server/jobs/store.js";
 import { rateLimit } from "../../lib/server/rateLimit.js";
+import { ownerFromRequest, ownerMatches } from "../../server/jobs/access.js";
 
 function summariseRun(run) {
   return {
@@ -16,6 +17,12 @@ function summariseRun(run) {
     durationMs: run.durationMs,
     startedAt: run.startedAt,
     completedAt: run.completedAt,
+    usage: run.usage ?? null,
+    toolRounds: run.toolRounds ?? 0,
+    toolsDisabled: run.toolsDisabled === true,
+    toolCalls: Array.isArray(run.toolCalls)
+      ? run.toolCalls.map((call) => ({ tool: call.tool ?? call.name ?? "unknown", ok: call.ok ?? null }))
+      : [],
     modelFallback: run.modelFallback ?? null
   };
 }
@@ -32,6 +39,12 @@ export default async function handler(req, res) {
 
   try {
     const job = await store.get(jobId);
+    const owner = ownerFromRequest(req);
+    const jobOwnerHash = typeof store.getOwnerHash === "function" ? await store.getOwnerHash(jobId) : null;
+    if (!ownerMatches(jobOwnerHash, owner)) {
+      // 404 rather than 403: do not confirm that someone else's job exists.
+      return res.status(404).json({ error: "Research job not found.", jobId });
+    }
 
     if (req.method === "DELETE") {
       const cancelled = await store.cancel(jobId);
