@@ -24,7 +24,8 @@ or calculated server-side. There is deliberately no `/v1` prefix (decision O4).
 | `/api/coverage` | GET | Which evidence capabilities are available, partial, degraded or unavailable | 60 s cache; includes runtime failure state; never echoes values |
 | `/api/nav` | GET | Official AMFI end-of-day NAV | `isin` or `schemeCode`; `delayed: true` |
 | `/api/official-data` | GET | data.gov.in OGD records | `resource`, `limit`, `offset`, `filters`; 503 without `DATA_GOV_IN_API_KEY` |
-| `/api/provider-status` | GET | Capability, configuration and verification levels | Includes storage + queue status |
+| `/api/provider-status` | GET | Capability, configuration and verification levels | Includes storage + queue status, per-agent Groq credential names/modes; never values |
+| `/api/diagnostics` | GET | Internal Data & AI diagnostics | Separate AI and market panels; no secrets, Authorization headers or provider URLs |
 | `/api/report` | POST | Single-shot AI commentary on a verified quote | Legacy quick path; one model call |
 | `/api/research` | POST | Create a durable research job | 202 with `jobId`; never runs agents in-request |
 | `/api/jobs` | GET | List jobs owned by `x-owner-id` (legacy unowned only when absent) | `limit`, `status` |

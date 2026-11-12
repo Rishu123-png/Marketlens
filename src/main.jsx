@@ -9,9 +9,20 @@ import NewsDesk from "./views/NewsDesk.jsx";
 import ResearchLab from "./views/ResearchLab.jsx";
 import Watchlists from "./views/Watchlists.jsx";
 import Portfolio from "./views/Portfolio.jsx";
+import Diagnostics from "./views/Diagnostics.jsx";
 import "./styles.css";
 
-const VALID_VIEWS = ["overview", "charts", "structure", "screener", "news", "research", "watchlists", "portfolio"];
+const VALID_VIEWS = [
+  "overview",
+  "charts",
+  "structure",
+  "screener",
+  "news",
+  "research",
+  "watchlists",
+  "portfolio",
+  "diagnostics"
+];
 
 function readView() {
   try {
@@ -57,6 +68,7 @@ function App() {
         {view === "research" && <ResearchLab />}
         {view === "watchlists" && <Watchlists onNavigate={navigate} />}
         {view === "portfolio" && <Portfolio onNavigate={navigate} />}
+        {view === "diagnostics" && <Diagnostics />}
       </main>
     </div>
   );

@@ -18,6 +18,11 @@ function summariseRun(run) {
     startedAt: run.startedAt,
     completedAt: run.completedAt,
     usage: run.usage ?? null,
+    credentialEnvName: run.credentialEnvName ?? null,
+    credentialMode: run.credentialMode ?? "none",
+    requestCount: run.requestCount ?? 0,
+    httpStatus: run.httpStatus ?? null,
+    rateLimit: run.rateLimit ?? null,
     toolRounds: run.toolRounds ?? 0,
     toolsDisabled: run.toolsDisabled === true,
     toolCalls: Array.isArray(run.toolCalls)

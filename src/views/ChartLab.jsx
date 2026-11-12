@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CoverageBar from "../components/CoverageBar.jsx";
 import InstrumentSearch from "../components/InstrumentSearch.jsx";
 import IndicatorPane from "../components/IndicatorPane.jsx";
 import PriceChart from "../components/PriceChart.jsx";
-import { api, formatMoney, formatPercent, formatTime } from "../lib/api.js";
+import { formatMoney, formatPercent, formatTime } from "../lib/api.js";
+import { fetchChartData } from "../lib/chartData.js";
 
 const TIMEFRAMES = [
   ["1min", "1m"],
@@ -63,55 +64,87 @@ export default function ChartLab({ initialSymbol = "RELIANCE", onNavigate }) {
   const [quoteError, setQuoteError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [analysisWarning, setAnalysisWarning] = useState(null);
+  const requestRef = useRef(0);
+  const abortRef = useRef(null);
+  const loadedKeyRef = useRef(null);
 
-  const load = useCallback(async (target = instrument, timeframe = interval) => {
-    if (!target?.symbol) return;
-    setLoading(true);
-    setError(null);
-    setQuoteError(null);
+  /**
+   * One explicit request path for instrument/timeframe changes.
+   *
+   * - `/api/history` is the canonical candle request; `/api/analysis` adds
+   *   indicator series and chart structure (the server reuses its candle cache).
+   * - A monotonically increasing request id prevents a slow earlier response
+   *   from overwriting a newer selection.
+   * - An AbortController cancels superseded requests.
+   * - `loadedKeyRef` suppresses duplicate fetches for the same selection caused
+   *   by re-renders; the Refresh button deliberately bypasses it.
+   */
+  const load = useCallback(
+    async (target = instrument, timeframe = interval, { force = false } = {}) => {
+      if (!target?.symbol) return;
+      const key = `${target.symbol}|${target.exchange || "NSE"}|${timeframe}`;
+      if (!force && loadedKeyRef.current === key) return;
 
-    const query =
-      `symbol=${encodeURIComponent(target.symbol)}` +
-      `&exchange=${encodeURIComponent(target.exchange || "")}` +
-      `&interval=${encodeURIComponent(timeframe)}&limit=320`;
+      const requestId = requestRef.current + 1;
+      requestRef.current = requestId;
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
 
-    const [analysisResult, quoteResult] = await Promise.allSettled([
-      api(`/api/analysis?${query}`),
-      api(`/api/market?symbol=${encodeURIComponent(target.symbol)}&exchange=${encodeURIComponent(target.exchange || "")}`)
-    ]);
+      setLoading(true);
+      setError(null);
+      setAnalysisWarning(null);
+      setQuoteError(null);
 
-    if (analysisResult.status === "fulfilled") setAnalysis(analysisResult.value);
-    else {
-      setAnalysis(null);
-      setError({
-        message: analysisResult.reason?.message || "Chart unavailable.",
-        status: analysisResult.reason?.status,
-        details: analysisResult.reason?.details
-      });
-    }
+      try {
+        const result = await fetchChartData({
+          symbol: target.symbol,
+          exchange: target.exchange || "",
+          interval: timeframe,
+          limit: 320,
+          signal: controller.signal
+        });
 
-    if (quoteResult.status === "fulfilled") setQuote(quoteResult.value);
-    else {
-      setQuote(null);
-      setQuoteError(quoteResult.reason?.message || "No verified quote is available for this instrument.");
-    }
+        if (requestRef.current !== requestId) return;
 
-    setLoading(false);
-  }, [instrument, interval]);
+        setQuote(result.quote);
+        setQuoteError(result.quoteError);
+
+        if (result.analysis) {
+          setAnalysis(result.analysis);
+          setError(null);
+          setAnalysisWarning(result.analysisWarning);
+          loadedKeyRef.current = key;
+        } else {
+          setAnalysis(null);
+          setError(result.error);
+        }
+      } catch (cause) {
+        if (requestRef.current !== requestId) return;
+        setAnalysis(null);
+        setError({ message: cause?.message || "Chart request failed.", status: cause?.status });
+      } finally {
+        if (requestRef.current === requestId) setLoading(false);
+      }
+    },
+    [instrument, interval]
+  );
 
   useEffect(() => {
     load({ symbol: initialSymbol, exchange: "NSE", name: initialSymbol, currency: "INR" }, "1day");
+    return () => abortRef.current?.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function chooseInstrument(next) {
     setInstrument(next);
-    load(next, interval);
+    load(next, interval, { force: true });
   }
 
   function chooseInterval(next) {
     setInterval(next);
-    if (analysis) load(instrument, next);
+    load(instrument, next, { force: true });
   }
 
   function toggleOverlay(id) {
@@ -234,6 +267,14 @@ export default function ChartLab({ initialSymbol = "RELIANCE", onNavigate }) {
           <button type="button" className={mode === "ohlc" ? "mode active" : "mode"} onClick={() => setMode("ohlc")}>
             OHLC
           </button>
+          <button
+            type="button"
+            className="mode"
+            onClick={() => load(instrument, interval, { force: true })}
+            disabled={loading}
+          >
+            {loading ? "Loading…" : "Refresh"}
+          </button>
         </div>
       </div>
 
@@ -349,6 +390,8 @@ export default function ChartLab({ initialSymbol = "RELIANCE", onNavigate }) {
               )}
             </div>
           )}
+
+          {analysisWarning && <p className="muted-note">{analysisWarning}</p>}
 
           {analysis && (
             <div className="chart-foot">

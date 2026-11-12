@@ -6,7 +6,7 @@ agents interpret that evidence — **Groq is the single AI provider for all six
 agents**, report reasoning, classification and evidence interpretation; a
 deterministic publication gate decides whether a report may be published. **No order execution, no price targets, no predictions.**
 
-Eight workspaces ship today:
+Nine workspaces ship today:
 
 - **Overview** — index cards, verified breadth, sector performance, movers, heatmap,
   watchlist and a paginated instrument master with per-instrument provider
@@ -27,6 +27,10 @@ Eight workspaces ship today:
   (price, %, volume, news keyword) with trigger history.
 - **Virtual Portfolio** — hypothetical holdings, virtual trades, mark-to-market
   P&L, sector exposure and concentration. No broker, no order execution.
+- **Diagnostics** — an internal Data & AI workspace with two deliberately separate
+  panels: Groq per-agent credentials/models/runs/rate limits/fallbacks, and
+  market-data provider health, coverage, request attempts, cache and freshness.
+  It never displays credential values.
 
 Every market screen states its coverage. The instrument matrix
 (`/api/instruments?coverage=1`) distinguishes catalogued, provider-mapped,
@@ -74,7 +78,8 @@ Same-origin `/api/*`, rate limited, no `/v1` prefix. Full reference:
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /api/health`, `/api/provider-status` | Configuration, capabilities and verification levels |
+| `GET /api/health`, `/api/provider-status` | Configuration, capabilities and verification levels, including per-agent Groq credential presence |
+| `GET /api/diagnostics` | Data & AI diagnostics: separate Groq credential/run panel and market-data provider/request panel (no secrets) |
 | `GET /api/instruments`, `/api/universe`, `/api/search` | Merged instrument master (160 curated + provider directory), availability, provider search |
 | `GET /api/market`, `/api/quotes`, `/api/top-stocks` | Verified quotes (single, batch, legacy ranking) |
 | `GET /api/market-overview` | Indices, verified breadth, sectors, movers, heatmap, freshness |
@@ -109,13 +114,15 @@ Everything is server-side; the browser never holds a provider key.
 | Group | Variables |
 | --- | --- |
 | Market data | `FMP_API_KEY`, `TWELVE_DATA_API_KEY`, `ALPHA_VANTAGE_API_KEY`, `PRIMARY_MARKET_PROVIDER`, `SECONDARY_MARKET_PROVIDER` |
-| AI | `GROQ_API_KEY`, `GROQ_MODEL` (default `openai/gpt-oss-120b`), `AI_MODEL_FALLBACK`, `AI_MODEL_*`, `AI_TIMEOUT_MS`, `AI_RETRIES`, `AI_BACKOFF_MS`, `AI_TOOL_CALLING`, `AI_TOOL_AGENTS` |
+| AI | `GROQ_API_KEY` (shared fallback), `GROQ_API_KEY_CHART`, `GROQ_API_KEY_TECHNICAL`, `GROQ_API_KEY_NEWS`, `GROQ_API_KEY_SENTIMENT`, `GROQ_API_KEY_RISK`, `GROQ_API_KEY_COORDINATOR`, `GROQ_AGENT_KEYS_REQUIRED`, `GROQ_SHARED_KEY_FALLBACK`, `GROQ_MODEL` (default `openai/gpt-oss-120b`), `AI_MODEL_FALLBACK`, `AI_MODEL_*`, `AI_TIMEOUT_MS`, `AI_RETRIES`, `AI_BACKOFF_MS`, `AI_TOOL_CALLING`, `AI_TOOL_AGENTS` |
 | Official evidence | `NEWS_RSS_ENABLED`, `NEWS_RSS_FEEDS`, `BSE_ANNOUNCEMENTS_RSS`, `NSE_ANNOUNCEMENTS_RSS`, `SEC_USER_AGENT`, `DATA_GOV_IN_API_KEY` |
 | News | `NEWS_API_KEY`, `GNEWS_API_KEY`, `NEWS_PROVIDER_ORDER`, `NEWS_RSS_FEEDS` |
 | Filings (unverified) | `NSE_FILINGS_COOKIE`, `BSE_FILINGS_ENABLED` |
 | Queue | `QSTASH_TOKEN`, `WORKER_URL`, `WORKER_SECRET`, `QSTASH_CURRENT_SIGNING_KEY`, `QSTASH_NEXT_SIGNING_KEY`, `WORKER_POLL_MS` |
 | Storage | `DATABASE_URL`, `DATABASE_SSL`, `DATABASE_POOL_MAX`, `OBJECT_STORE_ROOT`, `S3_*` |
 | Rate limits | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` |
+
+Per-agent Groq keys are optional. When a `GROQ_API_KEY_<AGENT>` value is present it is used for that agent; otherwise `GROQ_API_KEY` is used unless `GROQ_AGENT_KEYS_REQUIRED=true`. The credential's variable name and mode appear in `/api/provider-status` and `/api/diagnostics`, never its value. Separate keys isolate credentials but do **not** multiply the organisation/project rate limit.
 
 See [`.env.example`](.env.example) for the annotated list.
 

@@ -21,6 +21,7 @@ here so implementation decisions stay traceable to a decision.
 | [`evidence-sources.md`](./evidence-sources.md) | Permitted/prohibited sources, adapters, caching and coverage states |
 | [`environment-audit.md`](./environment-audit.md) | Every environment variable, plus retirement proposals (nothing deleted) |
 | [`observability.md`](./observability.md) | What is logged today, what is missing, how to add it |
+| [`groq-credential-routing.md`](./groq-credential-routing.md) | Per-agent Groq credential resolution, telemetry and the AI vs market diagnostics split |
 
 ## Layered system
 
@@ -28,7 +29,7 @@ here so implementation decisions stay traceable to a decision.
 ┌──────────────────────────────────────────────────────────────┐
 │ Frontend (React + Vite)   Overview · Chart Lab · Structure    │
 │                           Screener · News · Watchlists        │
-│                           Portfolio · Research Desk           │
+│                           Portfolio · Research · Diagnostics  │
 └───────────────────────────────┬──────────────────────────────┘
                                 │  same-origin /api/* (no secrets in browser)
 ┌───────────────────────────────▼──────────────────────────────┐
@@ -74,8 +75,9 @@ market-lens/
 ├── src/                      # React + Vite terminal
 │   ├── main.jsx              # shell + hash view routing
 │   ├── components/           # AppChrome, PriceChart, IndicatorPane, coverage
-│   ├── views/                # 8 workspaces: Overview, ChartLab, Structure,
-│   │                          Screener, News, Watchlists, Portfolio, Research
+│   ├── views/                # 9 workspaces: Overview, ChartLab, Structure,
+│   │                          Screener, News, Watchlists, Portfolio, Research,
+│   │                          Diagnostics
 │   ├── lib/                  # api client, market client, legacy helpers
 │   └── styles.css            # design tokens + terminal styles
 ├── api/
@@ -127,8 +129,9 @@ and provider-directory merge, venue-aware quotes, candles, indicators, chart
 patterns, deterministic market structure, market overview, screener, news/filing
 evidence, six agents with hybrid orchestration, deterministic gate, durable jobs
 with owner scoping and QStash signature verification, PostgreSQL schema and
-repositories, report assembly, and eight terminal workspaces including virtual
-portfolio and alerts.
+repositories, report assembly, per-agent Groq credential routing, and nine
+terminal workspaces including virtual portfolio, alerts and Data & AI
+diagnostics.
 
 Implemented but not verified against a live service in this environment: quote
 and candle providers, Groq calls, QStash delivery, PostgreSQL migrations, S3

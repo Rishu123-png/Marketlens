@@ -54,6 +54,22 @@ export const agentRunSchema = z
 
     usage: tokenUsageSchema.nullable().optional(),
 
+    // Credential routing telemetry. Only the environment-variable NAME and the
+    // mode are stored; secret values and prefixes are never persisted.
+    credentialEnvName: z.string().min(1).max(64).nullable().optional(),
+    credentialMode: z.enum(["dedicated", "shared", "none"]).nullable().optional(),
+    requestCount: nonNegativeIntegerSchema.max(100).optional(),
+    httpStatus: z.number().int().min(100).max(599).nullable().optional(),
+    rateLimit: z
+      .object({
+        remainingRequests: z.number().nonnegative().nullable().optional(),
+        remainingTokens: z.number().nonnegative().nullable().optional(),
+        resetRequests: z.string().max(80).nullable().optional(),
+        resetTokens: z.string().max(80).nullable().optional()
+      })
+      .nullable()
+      .optional(),
+
     // Audit of application-executed tool calls (Groq tool calling). The model can
     // only read data already present in the evidence envelope.
     toolCalls: z

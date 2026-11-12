@@ -29,6 +29,11 @@ export const alphaProvider = {
     return resolveProviderSymbol(instrument, "alpha") !== null;
   },
 
+  /** Alpha's free endpoints used here only provide daily/weekly series. */
+  supportsCandleInterval(interval) {
+    return interval === "1day" || interval === "1week";
+  },
+
   async fetchQuote(instrument) {
     const apiKey = process.env.ALPHA_VANTAGE_API_KEY;
     if (!apiKey) throw new Error("Alpha Vantage API key is not configured.");
@@ -36,7 +41,7 @@ export const alphaProvider = {
     const candidates = symbolCandidates(instrument);
     if (!candidates.length) throw new Error("Alpha Vantage has no mapping for this instrument.");
 
-    let lastError = "Alpha Vantage returned no usable quote.";
+    let lastError = null;
 
     for (const symbol of candidates) {
       try {
@@ -62,13 +67,13 @@ export const alphaProvider = {
           });
         }
 
-        lastError = "Alpha Vantage returned no quote.";
+        lastError = new Error("Alpha Vantage returned no quote.");
       } catch (error) {
-        lastError = error instanceof Error ? error.message : "Alpha Vantage failed.";
+        lastError = error instanceof Error ? error : new Error("Alpha Vantage failed.");
       }
     }
 
-    throw new Error(lastError);
+    throw lastError ?? new Error("Alpha Vantage returned no usable quote.");
   },
 
   async fetchCandles(instrument, { interval = "1day", limit = 365 } = {}) {

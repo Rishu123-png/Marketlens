@@ -5,6 +5,8 @@
 | Signal | Where | Notes |
 | --- | --- | --- |
 | AI usage per agent | `server/ai/usage.js` (`getUsageSnapshot`) | Tokens per model/agent, in-process |
+| AI credential routing | `server/ai/telemetry.js` + agent run metadata | Env-var name and dedicated/shared mode; request count, HTTP status, rate-limit headers, retries, fallback, latency |
+| Market-data requests | `server/market-data/observations.js` | Instrument/exchange, timeframe, requested count, provider, attempted, HTTP status, error, returned/dropped, cache, duration, data timestamp/freshness; no URLs or keys |
 | Provider failures | API `details[]`, job `dataWarnings` | Provider id + message, no secrets |
 | Job lifecycle | `research_job_events` (PostgreSQL) or in-memory history | Every transition with timestamp and reason |
 | Agent runs | `agent_runs` table / job detail | Status, attempts, duration, prompt/schema versions, error |
@@ -13,6 +15,7 @@
 | Health | `GET /api/health`, `/api/provider-status` | Configuration and verification levels, supported Groq models, instrument coverage |
 | Request logs | `server/http/router.js` (`dispatchApiRequest`) | One JSON line per API request: `event:"api_request"`, `requestId`, method, path, status, `durationMs`, `settled`; level derives from status |
 | Request correlation | Response header `X-Request-Id`, error body `requestId` | Incoming `x-request-id` reused only when it is UUID-shaped; otherwise generated. Disable logging with `LOG_REQUESTS=off` |
+| Diagnostics UI | `GET /api/diagnostics`, Diagnostics workspace | Two explicitly separate panels for Groq AI and market data; no secret values |
 
 Every response carries `retrievedAt` and every report carries engine versions
 (`orchestrator`, `envelope`, `indicators`, `patterns`, `gateRules`, `reportBuilder`),

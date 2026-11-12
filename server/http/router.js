@@ -13,6 +13,7 @@
 import { randomUUID } from "node:crypto";
 import analysis from "../../handlers/analysis.js";
 import coverage from "../../handlers/coverage.js";
+import diagnostics from "../../handlers/diagnostics.js";
 import finnhub from "../../handlers/finnhub.js";
 import health from "../../handlers/health.js";
 import history from "../../handlers/history.js";
@@ -40,6 +41,7 @@ import worker from "../../handlers/worker.js";
 const ROUTE_DEFINITIONS = [
   ["analysis", analysis],
   ["coverage", coverage],
+  ["diagnostics", diagnostics],
   ["finnhub", finnhub],
   ["health", health],
   ["history", history],

@@ -11,6 +11,13 @@ export const PROVIDERS = Object.freeze({
 
 export const PROVIDER_IDS = Object.freeze(Object.keys(PROVIDERS));
 
+/** Declared capabilities. Declared, not live-verified. */
+export const PROVIDER_CAPABILITIES = Object.freeze({
+  fmp: { quotes: true, candles: false, indices: true },
+  twelve: { quotes: true, candles: true, indices: "mapped-only" },
+  alpha: { quotes: true, candles: true, indices: "mapped-only" }
+});
+
 /**
  * Provider attempt order. `PRIMARY_MARKET_PROVIDER` (fmp | twelve | alpha)
  * chooses which one is tried first; unknown values fall back to fmp.

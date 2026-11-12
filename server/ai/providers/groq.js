@@ -1,26 +1,42 @@
 import { DEFAULT_MODEL } from "../config.js";
+import { describeGroqCredentials, hasAnyGroqCredential } from "../credentials.js";
 
 /**
  * Groq adapter.
  *
- * One configured credential is used for every logical agent. Keys are never
- * rotated to evade rate limits — 429s are surfaced with their retry delay and
- * the caller backs off or fails honestly.
+ * The caller must pass an explicit credential, resolved per agent by
+ * `server/ai/credentials.js`. There is deliberately no implicit
+ * `process.env.GROQ_API_KEY` default: a missing key is a configuration error,
+ * not a silent switch to a shared credential.
+ *
+ * Keys are never rotated to evade rate limits — 429s are surfaced with their
+ * retry delay and the caller backs off or fails honestly.
  */
 
 export class AIProviderError extends Error {
-  constructor(message, { status = null, retryable = false, retryAfterSeconds = null, kind = "provider", cause } = {}) {
+  constructor(
+    message,
+    { status = null, retryable = false, retryAfterSeconds = null, kind = "provider", cause, rateLimit = null } = {}
+  ) {
     super(message);
     this.name = "AIProviderError";
     this.kind = kind;
     this.status = status;
     this.retryable = retryable;
     this.retryAfterSeconds = retryAfterSeconds;
+    this.rateLimit = rateLimit;
     if (cause) this.cause = cause;
   }
 }
 
 const ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
+
+/** Defense in depth: an upstream error must never echo the credential back. */
+function redactSecret(text, secret) {
+  const value = String(text ?? "");
+  if (!secret) return value;
+  return value.split(String(secret)).join("[redacted]");
+}
 
 function parseRetryAfter(headers) {
   const raw = headers?.get?.("retry-after");
@@ -28,12 +44,35 @@ function parseRetryAfter(headers) {
   return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
 }
 
+function parseRateLimit(headers) {
+  if (!headers?.get) return null;
+  const pick = (name) => {
+    const raw = headers.get(name);
+    if (raw === null || raw === undefined || raw === "") return null;
+    const number = Number(String(raw).replace(/[^0-9.]/g, ""));
+    return Number.isFinite(number) ? number : null;
+  };
+  const limit = {
+    remainingRequests: pick("x-ratelimit-remaining-requests"),
+    remainingTokens: pick("x-ratelimit-remaining-tokens"),
+    resetRequests: headers.get("x-ratelimit-reset-requests") ?? null,
+    resetTokens: headers.get("x-ratelimit-reset-tokens") ?? null
+  };
+  return Object.values(limit).some((value) => value !== null) ? limit : null;
+}
+
 export const groqProvider = {
   id: "groq",
   label: "Groq",
+  // Tells the runner that it must resolve and pass a credential explicitly.
+  requiresCredential: true,
 
   isConfigured(env = process.env) {
-    return Boolean(env.GROQ_API_KEY);
+    return hasAnyGroqCredential(env);
+  },
+
+  credentialStatus(env = process.env) {
+    return describeGroqCredentials(env);
   },
 
   /**
@@ -45,14 +84,14 @@ export const groqProvider = {
     temperature = 0.1,
     maxOutputTokens = null,
     timeoutMs = 20_000,
-    apiKey = process.env.GROQ_API_KEY,
+    apiKey,
     fetchImpl = globalThis.fetch,
     tools = null,
     toolChoice = "auto",
     responseFormat = { type: "json_object" }
   } = {}) {
     if (!apiKey) {
-      throw new AIProviderError("Groq AI service is not configured.", {
+      throw new AIProviderError("No Groq credential was supplied for this agent.", {
         status: 503,
         retryable: false,
         kind: "configuration"
@@ -118,12 +157,13 @@ export const groqProvider = {
         const message = modelNotFound
           ? `Groq model "${model}" is unavailable for this key (model_not_found). ` +
             `Set GROQ_MODEL to a model your plan serves, for example "${DEFAULT_MODEL}".`
-          : providerMessage;
+          : redactSecret(providerMessage, apiKey);
 
         throw new AIProviderError(message, {
           status: response.status,
           retryable: !modelNotFound && (response.status === 429 || response.status >= 500),
           retryAfterSeconds: parseRetryAfter(response.headers),
+          rateLimit: parseRateLimit(response.headers),
           kind: modelNotFound ? "model-not-found" : toolRelated ? "tools-unsupported" : "provider"
         });
       }
@@ -156,6 +196,8 @@ export const groqProvider = {
         toolCalls,
         finishReason: choice?.finish_reason ?? null,
         provider: "groq",
+        httpStatus: response.status,
+        rateLimit: parseRateLimit(response.headers),
         model: data?.model || model,
         usage: {
           promptTokens: Number(rawUsage.prompt_tokens) || 0,

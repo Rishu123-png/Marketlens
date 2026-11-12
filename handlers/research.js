@@ -6,6 +6,7 @@ import { getJobStore, resolveJobStore } from "../server/jobs/store.js";
 import { getQueue, queueStatus } from "../server/jobs/queue.js";
 import { rateLimit } from "../lib/server/rateLimit.js";
 import { ownerFromRequest, ownerHash } from "../server/jobs/access.js";
+import { credentialMap, hasAnyGroqCredential } from "../server/ai/credentials.js";
 
 function readBody(req) {
   if (!req.body) return {};
@@ -53,10 +54,12 @@ export default async function handler(req, res) {
   const instrument = resolveInstrument(symbol, String(body.exchange || "").trim().toUpperCase());
   if (!instrument) return res.status(400).json({ error: "A valid instrument symbol is required." });
 
-  if (!process.env.GROQ_API_KEY) {
+  if (!hasAnyGroqCredential()) {
     return res.status(503).json({
-      error: "AI service is not configured. Set GROQ_API_KEY before creating research jobs.",
-      configuration: "GROQ_API_KEY"
+      error:
+        "AI service is not configured. Set GROQ_API_KEY or the six per-agent GROQ_API_KEY_* variables before creating research jobs.",
+      configuration: "GROQ_API_KEY",
+      credentialVariables: Object.values(credentialMap()).filter((name) => name !== "GROQ_API_KEY")
     });
   }
 

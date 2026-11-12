@@ -10,7 +10,7 @@
 import { instrumentFromSymbol } from "../../shared/instruments/catalog.js";
 import { quoteSchema } from "../../shared/schemas/quote.js";
 import { validateQuoteIdentity } from "./identity.js";
-import { recordQuoteObservation } from "./observations.js";
+import { dataFreshness, recordMarketRequest, recordQuoteObservation } from "./observations.js";
 import { getProviderOrder, getProviders } from "./providers/index.js";
 
 const DEFAULT_CACHE_TTL_MS = 60_000;
@@ -63,6 +63,18 @@ export async function getVerifiedQuote(target, options = {}) {
   if (options.cache !== false) {
     const hit = cache.get(cacheKey);
     if (hit && Date.now() - hit.createdAt < ttl) {
+      recordMarketRequest({
+        kind: "quote",
+        instrumentId: instrument.id,
+        symbol: instrument.symbol,
+        exchange: instrument.exchange,
+        provider: hit.data.provider,
+        cacheHit: true,
+        returnedCount: 1,
+        durationMs: 0,
+        dataTimestamp: hit.data.providerTimestamp ?? null,
+        freshness: hit.data.freshness ?? "unknown"
+      });
       return { ...hit.data, cached: true };
     }
   }
@@ -74,20 +86,35 @@ export async function getVerifiedQuote(target, options = {}) {
 
   for (let index = 0; index < providers.length; index += 1) {
     const provider = providers[index];
+    const requestContext = {
+      kind: "quote",
+      instrumentId: instrument.id,
+      symbol: instrument.symbol,
+      exchange: instrument.exchange,
+      provider: provider.id
+    };
     const remaining = budgetMs - (Date.now() - startedAt);
     if (remaining <= 0) {
-      errors.push({ provider: provider.id, message: "Quote budget exhausted before this provider was tried." });
+      const message = "Quote budget exhausted before this provider was tried.";
+      errors.push({ provider: provider.id, message });
+      recordMarketRequest({ ...requestContext, attempted: false, error: new Error(message) });
       continue;
     }
 
     if (!provider.supports(instrument)) {
-      errors.push({
-        provider: provider.id,
-        message: "Instrument is not mapped for this provider."
-      });
+      const message = "Instrument is not mapped for this provider.";
+      errors.push({ provider: provider.id, message });
+      recordMarketRequest({ ...requestContext, attempted: false, error: new Error(message) });
+      continue;
+    }
+    if (typeof provider.isConfigured === "function" && !provider.isConfigured()) {
+      const message = "API key is not configured.";
+      errors.push({ provider: provider.id, message });
+      recordMarketRequest({ ...requestContext, attempted: false, error: new Error(message) });
       continue;
     }
 
+    const attemptStartedAt = Date.now();
     let quote;
     let timer = null;
     try {
@@ -140,11 +167,28 @@ export async function getVerifiedQuote(target, options = {}) {
         ok: true,
         quote: data
       });
+      recordMarketRequest({
+        ...requestContext,
+        attempted: true,
+        httpStatus: 200,
+        returnedCount: 1,
+        durationMs: Date.now() - attemptStartedAt,
+        dataTimestamp: data.providerTimestamp ?? null,
+        freshness: dataFreshness(data.providerTimestamp)?.classification ?? "unknown"
+      });
       return data;
     } catch (error) {
       errors.push({
         provider: provider.id,
-        message: error instanceof Error ? error.message : "Unknown provider error"
+        message: error instanceof Error ? error.message : "Unknown provider error",
+        status: Number.isFinite(Number(error?.status)) ? Number(error.status) : null
+      });
+      recordMarketRequest({
+        ...requestContext,
+        attempted: true,
+        httpStatus: error?.status ?? null,
+        error: error instanceof Error ? error : new Error("Unknown provider error"),
+        durationMs: Date.now() - attemptStartedAt
       });
     } finally {
       if (timer) clearTimeout(timer);

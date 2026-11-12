@@ -5,6 +5,14 @@
 - Provider and AI keys are server-side environment variables only. No `VITE_*`
   variable exists for any provider, and the client bundle is checked by a test
   that fails if zod or server modules leak into it.
+- Groq credentials are resolved per agent by `server/ai/credentials.js` using
+  `GROQ_API_KEY_<AGENT>` and the shared `GROQ_API_KEY` fallback. The provider
+  receives the credential explicitly; it has no implicit env fallback.
+  `GROQ_AGENT_KEYS_REQUIRED=true` forbids shared fallback and fails the agent.
+- Telemetry, diagnostics and status endpoints carry only the environment-variable
+  NAME and `dedicated | shared | none`. They never carry a key, prefix or
+  Authorization header. Separate keys do not multiply organisation/project
+  rate limits; 429s are surfaced and never bypassed by key rotation.
 - Errors surface provider names and status codes, never headers or key values.
 - `/api/worker` accepts either a verified Upstash QStash signature (HS256 JWT,
   current/next signing keys, expiry + body digest) or `WORKER_SECRET`. With

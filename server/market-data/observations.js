@@ -12,8 +12,10 @@
  */
 
 const MAX_ENTRIES = 2_000;
+const MAX_REQUESTS = 400;
 const quotes = new Map();
 const candles = new Map();
+const requests = [];
 
 function boundedSet(store, key, value) {
   store.set(key, value);
@@ -73,6 +75,62 @@ export function candleObservation(instrumentId) {
   return candles.get(instrumentId) || null;
 }
 
+/**
+ * Safe per-request market-data telemetry. Never include provider URLs, query
+ * strings or API keys: `providerRequestUrl` is deliberately absent.
+ */
+function numberOrNull(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+export function recordMarketRequest(entry = {}) {
+  const event = {
+    at: new Date().toISOString(),
+    kind: entry.kind === "candles" ? "candles" : "quote",
+    instrumentId: entry.instrumentId ?? null,
+    symbol: entry.symbol ?? null,
+    exchange: entry.exchange ?? null,
+    interval: entry.interval ?? null,
+    requestedLimit: numberOrNull(entry.requestedLimit),
+    provider: entry.provider ?? null,
+    attempted: entry.attempted === true,
+    httpStatus: numberOrNull(entry.httpStatus),
+    error: entry.error ? messageOf(entry.error) : null,
+    returnedCount: numberOrNull(entry.returnedCount) ?? 0,
+    droppedCount: numberOrNull(entry.droppedCount) ?? 0,
+    cacheHit: entry.cacheHit === true,
+    durationMs: numberOrNull(entry.durationMs) === null ? null : Math.max(0, numberOrNull(entry.durationMs)),
+    dataTimestamp: entry.dataTimestamp ?? null,
+    freshness: entry.freshness ?? null
+  };
+  requests.push(event);
+  if (requests.length > MAX_REQUESTS) requests.splice(0, requests.length - MAX_REQUESTS);
+  return event;
+}
+
+/** Age-based label for a provider timestamp. Missing timestamps are unknown. */
+export function dataFreshness(dataTimestamp, { now = Date.now() } = {}) {
+  if (!dataTimestamp) return { ageMinutes: null, classification: "unknown" };
+  const parsed = Date.parse(dataTimestamp);
+  if (!Number.isFinite(parsed)) return { ageMinutes: null, classification: "unknown" };
+  const ageMinutes = Math.max(0, Math.round((now - parsed) / 60_000));
+  const classification =
+    ageMinutes <= 15 ? "fresh" : ageMinutes <= 24 * 60 ? "delayed" : "eod-or-historical";
+  return { ageMinutes, classification };
+}
+
+export function marketRequestSnapshot({ kind = null, limit = 100 } = {}) {
+  const selected = kind ? requests.filter((entry) => entry.kind === kind) : requests;
+  return {
+    persisted: false,
+    note: "Per-process request telemetry; resets on cold start. Contains no URLs or credentials.",
+    count: selected.length,
+    entries: selected.slice(-Math.max(1, Math.min(200, Number(limit) || 100))).reverse()
+  };
+}
+
 export function observationSnapshot({ now = Date.now(), freshMs = 15 * 60 * 1000 } = {}) {
   const recent = (value) => Boolean(value) && now - Date.parse(value) <= freshMs;
   const quoteRows = [...quotes.values()];
@@ -102,6 +160,7 @@ export function observationSnapshot({ now = Date.now(), freshMs = 15 * 60 * 1000
 export function resetObservationsForTests() {
   quotes.clear();
   candles.clear();
+  requests.length = 0;
 }
 
 /** Raw quote observation rows, for coverage aggregation. */

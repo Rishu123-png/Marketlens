@@ -16,16 +16,25 @@
 import { agentRunSchema } from "../../shared/schemas/agent.js";
 import { getAgentConfig } from "./config.js";
 import { AIProviderError, groqProvider } from "./providers/groq.js";
+import { getGroqCredential } from "./credentials.js";
 import { recordUsage } from "./usage.js";
+import { recordAgentTelemetry } from "./telemetry.js";
 import { executeToolCall } from "../agents/tools.js";
 
 export class AICompletionError extends Error {
-  constructor(message, { attempts = 0, retryable = false, cause } = {}) {
+  constructor(
+    message,
+    { attempts = 0, retryable = false, cause, requestCount = 0, httpStatus = null, rateLimit = null, modelFallback = null } = {}
+  ) {
     super(message);
     this.name = "AICompletionError";
     this.attempts = attempts;
     this.retryable = retryable;
     this.statusCode = 502;
+    this.requestCount = requestCount;
+    this.status = httpStatus ?? cause?.status ?? null;
+    this.rateLimit = rateLimit ?? cause?.rateLimit ?? null;
+    this.modelFallback = modelFallback ?? null;
     if (cause) this.cause = cause;
   }
 }
@@ -115,7 +124,9 @@ export async function runStructuredCompletion({
   now = () => new Date(),
   tools = null,
   toolContext = null,
-  maxToolRounds = 2
+  maxToolRounds = 2,
+  credential = null,
+  fetchImpl = undefined
 } = {}) {
   if (!Array.isArray(messages) || messages.length === 0) {
     throw new TypeError("messages must be a non-empty array");
@@ -134,6 +145,17 @@ export async function runStructuredCompletion({
   let attempts = 0;
   let lastError = null;
   let toolsDisabled = false;
+  let requestCount = 0;
+  let httpStatus = null;
+  let rateLimit = null;
+
+  if (provider?.requiresCredential === true && !credential?.apiKey) {
+    throw new AICompletionError("No Groq credential was resolved for this agent.", {
+      attempts: 0,
+      retryable: false,
+      requestCount: 0
+    });
+  }
 
   // A retired model is a configuration problem, not a transient one. If the
   // caller allows it, retry once with the configured fallback model and record
@@ -158,15 +180,22 @@ export async function runStructuredCompletion({
 
         let response;
         try {
+          requestCount += 1;
           response = await provider.completeJson({
             messages,
             model: activeModel,
             temperature: config.temperature,
             maxOutputTokens: config.maxOutputTokens ?? null,
             timeoutMs: config.timeoutMs ?? 20_000,
-            tools: useTools ? toolList : null
+            tools: useTools ? toolList : null,
+            ...(credential?.apiKey ? { apiKey: credential.apiKey } : {}),
+            ...(fetchImpl ? { fetchImpl } : {})
           });
+          httpStatus = Number.isFinite(Number(response.httpStatus)) ? Number(response.httpStatus) : 200;
+          if (response.rateLimit) rateLimit = response.rateLimit;
         } catch (error) {
+          httpStatus = Number.isFinite(Number(error?.status)) ? Number(error.status) : httpStatus;
+          if (error?.rateLimit) rateLimit = error.rateLimit;
           if (useTools && isToolUnsupported(error)) {
             toolsDisabled = true;
             round -= 1; // retry this round without tools
@@ -244,7 +273,10 @@ export async function runStructuredCompletion({
           toolCalls: audit.slice(0, 12),
           toolRounds,
           toolsDisabled,
-          modelFallback
+          modelFallback,
+          requestCount,
+          httpStatus,
+          rateLimit
         };
       }
 
@@ -282,7 +314,11 @@ export async function runStructuredCompletion({
   throw new AICompletionError(lastError?.message || "AI completion failed.", {
     attempts,
     retryable: lastError?.retryable === true,
-    cause: lastError
+    cause: lastError,
+    requestCount,
+    httpStatus,
+    rateLimit,
+    modelFallback
   });
 }
 
@@ -302,7 +338,8 @@ export async function runAgent({
   sleep,
   now = () => new Date(),
   tools = null,
-  toolContext = null
+  toolContext = null,
+  fetchImpl = undefined
 } = {}) {
   const resolved = config ?? getAgentConfig(agent);
   const startedAt = now();
@@ -328,6 +365,42 @@ export async function runAgent({
     });
   }
 
+  let credential = null;
+  try {
+    // Resolve exactly one credential per logical agent. The provider receives it
+    // explicitly; there is no implicit shared-key fallback inside the adapter.
+    if (provider?.requiresCredential === true) {
+      credential = getGroqCredential(agent);
+    }
+  } catch (error) {
+    const failed = agentRunSchema.parse({
+      agent,
+      status: "FAILED",
+      researchJobId: jobId,
+      instrumentId,
+      startedAt: startedAt.toISOString(),
+      completedAt: now().toISOString(),
+      durationMs: 0,
+      attempts: 0,
+      retries: 0,
+      provider: resolved.provider,
+      model: resolved.model,
+      promptVersion: resolved.promptVersion,
+      schemaVersion: resolved.schemaVersion,
+      output: null,
+      error: (error instanceof Error ? error.message : "Credential resolution failed.").slice(0, 2000),
+      usage: null,
+      credentialEnvName: error?.envName ?? null,
+      credentialMode: "none",
+      requestCount: 0,
+      httpStatus: null,
+      rateLimit: null,
+      modelFallback: null
+    });
+    recordAgentTelemetry(failed);
+    return failed;
+  }
+
   try {
     const result = await runStructuredCompletion({
       messages,
@@ -337,10 +410,12 @@ export async function runAgent({
       sleep,
       now,
       tools,
-      toolContext
+      toolContext,
+      credential,
+      fetchImpl
     });
 
-    return agentRunSchema.parse({
+    const completed = agentRunSchema.parse({
       agent,
       status: "COMPLETED",
       researchJobId: jobId,
@@ -360,10 +435,17 @@ export async function runAgent({
       toolCalls: result.toolCalls ?? [],
       toolRounds: result.toolRounds ?? 0,
       toolsDisabled: result.toolsDisabled === true,
-      modelFallback: result.modelFallback ?? null
+      modelFallback: result.modelFallback ?? null,
+      credentialEnvName: credential?.envName ?? null,
+      credentialMode: credential?.mode ?? "none",
+      requestCount: result.requestCount ?? 0,
+      httpStatus: result.httpStatus ?? null,
+      rateLimit: result.rateLimit ?? null
     });
+    recordAgentTelemetry(completed);
+    return completed;
   } catch (error) {
-    return agentRunSchema.parse({
+    const failedRun = agentRunSchema.parse({
       agent,
       status: "FAILED",
       researchJobId: jobId,
@@ -379,7 +461,15 @@ export async function runAgent({
       schemaVersion: resolved.schemaVersion,
       output: null,
       error: (error instanceof Error ? error.message : "Agent failed.").slice(0, 2000),
-      usage: null
+      usage: null,
+      credentialEnvName: credential?.envName ?? error?.envName ?? null,
+      credentialMode: credential?.mode ?? "none",
+      requestCount: error?.requestCount ?? 0,
+      httpStatus: error?.status ?? null,
+      rateLimit: error?.rateLimit ?? null,
+      modelFallback: error?.modelFallback ?? null
     });
+    recordAgentTelemetry(failedRun);
+    return failedRun;
   }
 }
