@@ -62,3 +62,26 @@ edit the `Decision` column and I will adjust the plan.
 | Key rotation | **Rejected** | Six Groq keys are separate credentials, not a rate-limit workaround |
 | Cost reporting | Tokens only, no currency conversion | Provider prices change; a fabricated cost figure is worse than none |
 | Legacy report path | `api/report.js` now uses the AI abstraction + `analysisReportSchema` | Preserves the HTTP contract (200/400/429/502/503) while removing the direct Groq call |
+
+## M2–M9 implementation decisions (2026-11-12)
+
+| Decision | Choice | Rationale |
+| --- | --- | --- |
+| Candle provider coverage | Twelve Data + Alpha Vantage adapters | FMP history generation is unverified; both adapters already existed for quotes |
+| Candle cache | 5-minute in-process cache, 10-candle floor | Avoids provider quota burn; the floor keeps chart analysis meaningful |
+| Invalid candle rows | Dropped and counted (`droppedRows`) | Repairing or interpolating a candle silently corrupts indicators |
+| Pattern engine | Deterministic pivot geometry, explicit `status` + `confidence` | Pattern claims are the easiest place to overstate; the engine never predicts |
+| Trend fallback | Net-change classification when pivots are too sparse | A monotonic series has no pivots; calling that "insufficient history" was misleading |
+| Agent output enforcement | Schema + deterministic guard + evidence-id check | Prompts are not enforcement; each failure is recorded, not repaired |
+| Prohibited language | Narrow patterns, agent fails | Recommendation wording is not repairable; fail closed |
+| Orchestration order | Data → parallel specialists → risk → gate → coordinator | The coordinator must see the gate; risk must see the specialists |
+| Report sections | Overwritten deterministically when an agent fails | Coordinator text for a failed section is discarded |
+| Jobs | Queue + independent worker; memory store locally, PostgreSQL when configured | O1: multi-agent work never runs inside a Vercel request |
+| Queue | QStash publisher implemented, unverified | Publishing is a single HTTP call; delivery needs a live account |
+| Worker auth | `WORKER_SECRET` shared secret | QStash signature verification needs signing keys and is a documented gap |
+| Storage | PostgreSQL schema + repositories; insert-only reports | Reports must preserve original evidence and timestamps |
+| Object storage | Filesystem tested; S3 SigV4 implemented, unverified | Avoids an SDK dependency; needs a live bucket to claim verification |
+| Charting | Lightweight Charts, presentation only | O3: visualisation never calculates |
+| Frontend routing | Hash-based view switch inside the existing app | Preserves the tested Overview and avoids a router dependency |
+| Client secrets | None; same-origin API only | The browser never holds a provider key |
+| News feeds | Candidate official feeds ship unverified; only configured feeds are polled | Feed URLs and redistribution terms change; guessing is worse than configuring |

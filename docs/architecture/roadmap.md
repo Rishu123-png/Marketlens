@@ -28,108 +28,107 @@ Acceptance: audit findings are traceable to files and numbers; no destructive ch
 
 No blocking decision remains. M1 shipped with 159 passing tests.
 
-## M2 — India-first market data `partial`
+## M2 — India-first market data `done`
 
-| Task | Status | Depends on | Notes |
-| --- | --- | --- | --- |
-| Instrument catalog with stable IDs, IN + US, equity/index/ETF | done | — | 36 instruments; indices need explicit provider mapping |
-| Provider adapters (FMP, Twelve, Alpha) + shared gateway | done | — | Adds a provider without touching endpoints |
-| Normalized quote with provider/retrieval timestamps + freshness | done | — | `normalize.js` |
-| Per-client rate limits on quote/search/batch/instrument routes | done | — | Shared store still pending |
-| Finnhub adapter into the gateway | planned | adapter interface | Orphan `api/finnhub.js` retired |
-| Provider health/latency monitoring | planned | M12 observability | Health endpoint reports measured status, not just key presence |
-| Verify FMP endpoint generation (legacy `/api/v3` vs `/stable`) | awaiting verification | FMP docs access | Primary provider confirmed working against a live key |
-| Confirm provider licensing for storage/redistribution | blocked | provider terms review | Gates candle/news persistence |
+| Task | Status | Notes |
+| --- | --- | --- |
+| Instrument catalog with stable IDs, IN + US, equity/index/ETF | done | 36 instruments; indices require explicit provider mapping |
+| Provider adapters (FMP, Twelve, Alpha) + shared gateway | done | Ordered fallback, quote-contract enforcement |
+| Historical candles from Twelve Data and Alpha Vantage | done | Validated against `candleSchema`; invalid rows dropped and counted |
+| Candle service with short-lived cache | done | 5-minute TTL, 10-candle analysis floor |
+| Per-client rate limits on all provider-backed routes | done | Upstash when configured, memory otherwise |
+| Independent price cross-check (second provider) | done | Used by the gate when `SECONDARY_MARKET_PROVIDER` is set |
+| Provider health/latency monitoring | partial | Status endpoint reports capability + verification level, not live latency |
+| Live provider verification | awaiting configuration | Requires real FMP/Twelve/Alpha keys |
+| Licensing for storage/redistribution | blocked | Terms review before candle/news persistence |
 
-## M3 — Technical intelligence `partial`
+## M3 — Technical intelligence `done`
 
-| Task | Status | Depends on | Notes |
-| --- | --- | --- | --- |
-| Indicator engine | done | — | 24 reference tests |
-| `GET /api/indicators` (candles → snapshot, shared with Chart Lab) | planned | M2 candles | Same code path for UI and Technical agent |
-| Candle service with cached persistence + `adjusted` flag | planned | storage decision | Never persist unlabelled adjusted prices |
-| Pattern detection: pivots, swings, S/R clusters, triangles, wedges, H&S, double/triple tops | planned | candle service | Deterministic, confidence + completion state |
-| Reference tests for pattern detection | planned | pattern detection | Fixed candle fixtures per pattern |
+- [x] Indicator engine with reference tests (SMA/EMA/RSI/MACD/ATR/Bollinger/relative volume).
+- [x] `GET /api/indicators` returning values, engine version and parameters.
+- [x] `GET /api/history` returning validated candles with coverage metadata.
+- [x] `GET /api/analysis` returning candles + indicators + geometric analysis, with no AI.
+- [x] Pattern engine: pivots, trend structure, S/R clusters, candlesticks, double top/bottom,
+      H&S, triangles, wedges, channels, flags, with explicit confidence and completion state.
+- [x] Deterministic trend fallback for monotonic series (no pivots) using net change.
+- [x] Reference tests per pattern family and for insufficient history.
 
-## M4 — News and evidence `planned`
+## M4 — News and evidence `done` (feeds awaiting configuration)
 
-Prerequisite: a permitted news source. `NEWS_API_KEY` is declared but unused —
-**awaiting configuration** (provider choice + terms).
+- [x] NewsAPI and GNews adapters behind a provider interface.
+- [x] Official-source RSS/Atom provider (RBI/SEBI/PIB candidates + `NEWS_RSS_FEEDS`).
+- [x] NSE/BSE announcement adapters that fail closed without verified access and mark output `adapter-unverified`.
+- [x] Evidence records with provenance, publisher, retrieval time, verification and fingerprint.
+- [x] Headline-based dedupe: syndicated copies collapse to one item with a duplicate count.
+- [x] Untrusted-content handling: markup/control-character stripping, injection signal flags,
+      evidence envelope in prompts; retrieved text never enters a system prompt.
+- [x] `GET /api/news`.
+- [ ] Confirm official feed URLs, terms and cadence — **awaiting verification** (feeds ship as
+      candidates and are only polled when configured or flipped to verified).
 
-- [ ] News adapter(s) behind a provider interface; no scraping outside terms.
-- [ ] Official filings/announcements source for NSE/BSE (**blocked** until a
-      permitted source is chosen).
-- [ ] Evidence records with provenance, dedupe fingerprint, verification status.
-- [ ] Near-duplicate collapsing (title/ticker/time/content fingerprint).
-- [ ] Freshness + category classification (deterministic first, model second).
-- [ ] `GET /api/news` with filters and pagination.
-- [ ] Untrusted-content handling: excerpts delimited, never concatenated into
-      system prompts.
+## M5 — Six agents, orchestration and durable execution `done`
 
-Acceptance: five syndicated copies of one story produce one evidence item.
-
-## M5 — Six agents and orchestration `planned` (execution model decided)
-
-| Task | Depends on |
+| Task | Status |
 | --- | --- |
-| Agent modules (prompt + input builder + output schema + tests) | M1 schemas, M3 indicators, M4 evidence |
-| Orchestrator: job creation, plan, statuses, timeouts, retries, cancellation | M1 lifecycle, M5 agent modules |
-| Durable execution (job table + worker), polling API | **decided** — queue + independent worker (QStash candidate); see [`execution-deployment.md`](./execution-deployment.md) |
-| Risk pre-analysis validation | M2 data-quality rules |
-| Risk post-analysis review + contradiction detection | agents |
-| `POST /api/research`, `GET /api/research/:jobId`, `/agents` | orchestrator |
+| Agent modules (prompt + envelope + output schema + guard) | done |
+| Hybrid orchestrator: deterministic data first, parallel specialists, risk, gate, coordinator | done |
+| Durable execution: job store, queue adapter, worker, polling API | done (memory + PostgreSQL; QStash publisher implemented, unverified) |
+| Deterministic post-checks: prohibited recommendation language, fabricated evidence ids | done |
+| Report assembly with sections removed when an agent did not complete | done |
+| `POST /api/research`, `GET /api/jobs`, `GET /api/jobs/:jobId`, `POST /api/worker` | done |
 
-Hosting options to decide: Vercel background functions / queue (QStash) / separate
-worker process. Until decided, orchestration can run in-request for Quick depth
-only, with the 60 s function limit documented as the constraint.
+Live verification still required: one end-to-end job against Groq with real provider keys, and one
+QStash delivery against a deployed worker.
 
-## M6 — Reports and publication gate `planned`
+## M6 — Reports and publication gate `done`
 
-- [ ] Report section builder per depth (Quick / Standard / Comprehensive).
-- [ ] Evidence linking (`report_evidence`), methodology + limitations section.
-- [ ] Deterministic gate enforcement in the report path.
-- [ ] Partial-report rendering rules; blocked reports never shown as complete.
-- [ ] Report persistence + `GET /api/reports`, comparisons.
-- [ ] Evaluation dataset: indicator correctness, pattern recall, source
-      attribution, contradiction preservation, unsupported-claim rate.
+- [x] Depth-based report sections (Quick/Standard/Comprehensive) driven by required modules.
+- [x] Deterministic gate verdict stored on the job and the report; partial and blocked outcomes.
+- [x] Evidence ids and source list on every report; methodology generated in code.
+- [x] Report persistence (PostgreSQL, insert-only) and report revisions table.
+- [ ] `GET /api/reports` list/detail endpoints — **planned** (job detail returns the report today).
+- [ ] Evaluation dataset and scoring harness — **planned**.
 
-## M7 — Frontend redesign `planned`
+## M7 — Frontend terminal `done` (first pass)
 
-Prerequisites: M3 (candles/indicators API), M5 (research endpoints).
+- [x] App shell with Overview, Chart Lab and Research views; hash routing; responsive layout.
+- [x] Overview preserved: watchlist, filters, provider search, quote modal, single-shot AI report.
+- [x] Chart Lab: candlesticks + volume via Lightweight Charts, deterministic structure,
+      zones, patterns, indicators and limitations.
+- [x] Research Lab: job creation, polling, gate verdict, agent status, report sections,
+      evidence trail and recent jobs.
+- [x] Client never holds a provider key; every request is same-origin.
+- [ ] Accessibility pass beyond focus outlines and labels — **planned**.
+- [ ] Instruments/News/Reports screens beyond the three shipped views — **planned**.
 
-- [ ] Router + app shell + design tokens extracted from current CSS.
-- [ ] Overview, Markets (catalog filters), instrument detail.
-- [ ] Chart Lab (candles, volume, overlays, agent annotations).
-- [ ] News Intelligence, AI Research, Agent Monitor, Reports, Settings.
-- [ ] Accessibility pass: focus traps, Escape handling, keyboard tables.
-- [ ] Chart library decision recorded in `decisions.md`.
+## M8 — Storage, security, observability `partial`
 
-Rule: no screen ships against an endpoint that does not exist.
+- [x] PostgreSQL schema + migrations (jobs, events, agent runs, evidence, reports, revisions).
+- [x] Job/report repositories with `FOR UPDATE SKIP LOCKED` claiming and insert-only reports.
+- [x] Object storage adapters: filesystem (tested) and S3 SigV4 (implemented, unverified).
+- [x] Security documentation: headers, secret handling, injection defence, worker auth.
+- [x] Observability documentation: what is logged today, what is missing, how to add it.
+- [ ] Authentication and per-user authorisation — **deferred** (architecture auth-ready).
+- [ ] Security headers enforced at the edge, request ids and structured audit log — **planned**.
+- [ ] Analytics — **deferred**.
 
-## M8 — Storage, auth, analytics `planned`
+## M9 — Global expansion `partial`
 
-- [ ] PostgreSQL schema + migrations (tables in target architecture §10).
-- [ ] Object storage for snapshots/exports; retention policy.
-- [ ] Authentication + per-user authorisation on jobs, reports, watchlists.
-- [ ] Security headers (CSP/HSTS/frame options), request IDs, audit log.
-- [ ] Observability: structured logs + provider/agent metrics.
-- [ ] Analytics layer designed; deployed later (**deferred**).
+India-first coverage is complete for equities/indices/ETFs through the catalog and provider
+mappings. Global instruments are supported by the same contracts (US listings are in the
+catalog); exchange calendars, timezones and additional asset classes remain **planned** and are
+not activated in the UI.
 
-## M9 — Global expansion `planned`
+## M10 — Production validation `in progress`
 
-Exchange metadata, trading calendars, timezones, currency handling (only through a
-validated service), additional provider adapters, and an activation checklist per
-asset class — a data model alone never activates an asset class in the UI.
-
-## M10 — Production validation `planned`
-
-Security tests, data-quality tests, agent evaluation against the fixed dataset,
-performance/load checks, deployment verification (including the live Vercel URL
-and its environment variables), documentation and release checklist.
+- [x] Full test suite, syntax guard, production build and dependency audit run locally.
+- [x] Deployment, security, observability and API references documented.
+- [ ] Live provider and Groq verification, QStash delivery, PostgreSQL migration run.
+- [ ] Load/performance checks and an agent evaluation dataset.
 
 ## Cross-cutting, continuously
 
 - Every new endpoint: validation, rate limit, schema-checked output, tests.
 - Every AI call: schema validation, timeout, retry policy, token/cost logging.
 - Every provider: adapter + licensing note + coverage test.
-- Every claim in docs: marked done / partial / planned / blocked.
+- Every claim in docs: marked done / partial / planned / blocked / awaiting configuration.

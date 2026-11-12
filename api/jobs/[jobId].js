@@ -34,7 +34,12 @@ export default async function handler(req, res) {
 
     if (req.method === "DELETE") {
       const cancelled = store.cancel(jobId);
-      return res.status(200).json({ jobId, status: cancelled.status, cancelled: true });
+      return res.status(200).json({
+        jobId,
+        status: cancelled.status,
+        cancelled: cancelled.status === "CANCELLED",
+        ...(cancelled.status !== "CANCELLED" ? { note: "The job had already finished; nothing was cancelled." } : {})
+      });
     }
 
     const result = store.getResult(jobId);

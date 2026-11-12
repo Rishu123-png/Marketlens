@@ -119,3 +119,60 @@ implementation.
   will call, with 32 tests.
 
 Nothing in M1 performs I/O beyond the existing endpoints.
+
+## Implemented execution path (M5)
+
+```
+POST /api/research
+  ├─ validate depth/symbol, require GROQ_API_KEY
+  ├─ create job (CREATED → VALIDATING → QUEUED)
+  └─ publish { jobId } to the queue
+        ├─ memory queue  → same-process worker (`npm run worker`)
+        └─ QStash        → WORKER_URL (POST /api/worker, x-worker-secret)
+worker (JobRunner)
+  ├─ claim QUEUED → RUNNING
+  ├─ run orchestrator (data → agents → gate → report)
+  ├─ persist agent runs + report + evidence
+  └─ COMPLETED | PARTIAL | BLOCKED | FAILED
+GET /api/jobs/:jobId  → poll until terminal
+```
+
+Configuration:
+
+| Variable | Purpose |
+| --- | --- |
+| `QSTASH_TOKEN` | Publish jobs to QStash |
+| `WORKER_URL` | Public worker endpoint that receives the job id |
+| `WORKER_SECRET` | Shared secret required by `/api/worker` |
+| `WORKER_POLL_MS` | Poll interval for `npm run worker` |
+| `DATABASE_URL` | Durable, shared job store (otherwise memory) |
+
+Limits and gaps:
+
+- The worker route sets `maxDuration: 300`. A comprehensive job with slow providers
+  can approach that; the queue should be configured with a retry policy.
+- QStash request-signature verification is not implemented; the shared secret is the
+  current control.
+- Without `DATABASE_URL`, the memory store is process-local: the API cannot see a job
+  created in another instance. This is stated in API responses (`note`) and in
+  `provider-status`.
+
+## Cost model (unchanged, restated)
+
+Per comprehensive job: 6 agent calls (chart, technical, news, sentiment, risk,
+coordinator) plus deterministic compute. Token ceilings come from
+`server/ai/config.js` (900–2,400 output tokens per agent). Cost is bounded by
+`maxOutputTokens` × model price; usage is recorded per agent so a job can be
+costed after the fact. Retries are capped at one and never sleep longer than 5 s.
+
+## Deployment checklist
+
+1. Set provider keys (market data, Groq) as server-side environment variables.
+2. Set `DATABASE_URL` (+ `DATABASE_SSL`) and run migrations
+   (`node -e "import('./server/storage/index.js').then(m => m.getStorage())"`).
+3. Deploy the worker (`npm run worker` on a long-running host, or `/api/worker`
+   for queue deliveries) and set `WORKER_SECRET`.
+4. Configure QStash with `QSTASH_TOKEN` + `WORKER_URL`.
+5. Optionally configure `S3_*` for report artefacts.
+6. Set `NEWS_*` and confirm official feeds before enabling them.
+7. Verify: create a Quick job, confirm gate verdict, then a Comprehensive job.
