@@ -57,7 +57,7 @@ npm run check    # parse-only syntax guard (api/, handlers/, server/, lib/, scri
 npm test         # Node test runner: unit + endpoint suites
 npm run build    # production client build
 npm audit        # dependency audit
-npm run worker   # background research worker (polling)
+npm run worker   # separate polling worker, when DATABASE_URL points to a shared job store
 ```
 
 ## How research runs
@@ -71,12 +71,15 @@ worker              → fetch quote + candles + official-first evidence, calcula
 GET /api/jobs/:id   → poll status, agent runs, gate, report, evidence
 ```
 
-Multi-agent work never runs inside a web request (decision O1). Without
-`QSTASH_TOKEN`/`WORKER_URL` the queue is process-local: run `npm run worker` in the
-same workspace. Production needs QStash, a worker deployment, and either QStash
-signing keys or `WORKER_SECRET`. With `DATABASE_URL`, jobs, agent runs, reports and
-the result envelope are durable; without it the queue/store is process-local and
-that limitation is reported, not hidden. An owner can explicitly retry a
+Multi-agent work never runs inside a web request (decision O1). `npm run dev`
+starts a development-only background poller in the API process when QStash is
+not configured, so it can see the default in-memory job store. Set
+`DEV_RESEARCH_WORKER=off` to disable it. A separate `npm run worker` process
+cannot see that memory store; it needs a shared `DATABASE_URL` instead.
+Production needs QStash, a worker deployment, and either QStash signing keys or
+`WORKER_SECRET`. With `DATABASE_URL`, jobs, agent runs, reports and the result
+envelope are durable; without it the queue/store is process-local and that
+limitation is reported, not hidden. An owner can explicitly retry a
 `FAILED`/`BLOCKED` job; retries are never automatic.
 
 ## API

@@ -139,7 +139,7 @@ export function buildMarketDiagnostics({ env = process.env, now = () => new Date
     // deliberately separate numbers.
     quoteHttpSuccesses: entries.filter((entry) => entry.kind === "quote" && entry.httpStatus === 200).length,
     candleHttpSuccesses: entries.filter((entry) => entry.kind === "candles" && entry.httpStatus === 200).length,
-    verifiedQuoteSuccesses: observed.quotes.withQuotes,
+    verifiedQuoteSuccesses: observed.quotes.verified,
     candleSuccesses: observed.candles.withCandles,
     failures: entries.filter((entry) => entry.error).length,
     realtimeClaims: 0
@@ -189,7 +189,7 @@ export function buildMarketDiagnostics({ env = process.env, now = () => new Date
       dataVerified: "The response passed identity and schema validation and is shown as a quote/candle.",
       cached: "Served from the in-process cache; not a fresh provider call.",
       quoteHttpSuccesses: "A provider returned HTTP 2xx. Identity/schema validation may still reject it.",
-      verifiedQuoteSuccesses: "An identity-checked quote was observed in this instance.",
+      verifiedQuoteSuccesses: "Instruments whose latest quote observation passed identity/schema checks in this instance.",
       delayed: "Provider tier is delayed or end-of-day; no real-time entitlement is claimed.",
       unavailable: "No configured provider returned usable data; nothing is fabricated."
     },

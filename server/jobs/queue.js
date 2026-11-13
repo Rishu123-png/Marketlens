@@ -37,6 +37,14 @@ export function createMemoryQueue() {
     async dequeue() {
       return items.shift() ?? null;
     },
+    // The in-process worker claims from the job store; remove the matching
+    // delivery afterwards so local queue depth does not grow forever.
+    acknowledge(jobId) {
+      const index = items.findIndex((item) => item.jobId === jobId);
+      if (index < 0) return false;
+      items.splice(index, 1);
+      return true;
+    },
     size() {
       return items.length;
     },

@@ -1,31 +1,51 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+const LOCAL_EVENT = "marketlens:local-state";
+
+function readStored(key, fallback) {
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw === null ? fallback : JSON.parse(raw) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 /**
- * Local, explicit persistence. Browser storage is used for watchlists, alerts
- * and the virtual portfolio because this deployment has no authenticated user
- * store; every screen that uses it says so instead of implying server-side sync.
+ * Browser-local state with same-tab and cross-tab synchronization. It is not a
+ * server account: each workspace still makes that storage boundary explicit.
  */
 export function usePersistentState(key, fallback) {
-  const [value, setValue] = useState(() => {
-    try {
-      const raw = window.localStorage.getItem(key);
-      if (raw === null) return fallback;
-      const parsed = JSON.parse(raw);
-      return parsed ?? fallback;
-    } catch {
-      return fallback;
+  const fallbackRef = useRef(fallback);
+  const [value, setValue] = useState(() => readStored(key, fallbackRef.current));
+
+  useEffect(() => {
+    function receive(event) {
+      const changedKey = event.type === LOCAL_EVENT ? event.detail?.key : event.key;
+      if (changedKey !== key) return;
+      const next = readStored(key, fallbackRef.current);
+      setValue((current) => JSON.stringify(current) === JSON.stringify(next) ? current : next);
     }
-  });
+    window.addEventListener(LOCAL_EVENT, receive);
+    window.addEventListener("storage", receive);
+    return () => {
+      window.removeEventListener(LOCAL_EVENT, receive);
+      window.removeEventListener("storage", receive);
+    };
+  }, [key]);
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(key, JSON.stringify(value));
+      const serialized = JSON.stringify(value);
+      if (window.localStorage.getItem(key) === serialized) return;
+      window.localStorage.setItem(key, serialized);
+      window.dispatchEvent(new CustomEvent(LOCAL_EVENT, { detail: { key } }));
     } catch {
-      /* storage can be disabled; the session still works in memory */
+      // Storage can be disabled; this hook continues to work in memory.
     }
   }, [key, value]);
 
-  const reset = useCallback(() => setValue(fallback), [fallback]);
+  const reset = useCallback(() => setValue(fallbackRef.current), []);
   return [value, setValue, reset];
 }
 

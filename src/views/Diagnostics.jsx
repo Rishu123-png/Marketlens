@@ -1,342 +1,129 @@
-import { useCallback, useEffect, useState } from "react";
-import { api, formatTime } from "../lib/api.js";
+import Icon from "../components/terminal/Icon.jsx";
+import TerminalPanel from "../components/terminal/TerminalPanel.jsx";
+import DataStatus from "../components/terminal/DataStatus.jsx";
+import EvidenceBadge from "../components/terminal/EvidenceBadge.jsx";
+import EmptyState from "../components/terminal/EmptyState.jsx";
+import MarketTable from "../components/terminal/MarketTable.jsx";
+import { useApiResource } from "../lib/useApi.js";
+import { formatTime } from "../lib/api.js";
+import { compactNumber } from "../lib/marketVisuals.js";
+import { credentialSelection } from "../lib/aiRouting.js";
 
-function statusChip(ok, labelTrue = "configured", labelFalse = "missing") {
-  return <span className={ok ? "chip ok" : "chip bad"}>{ok ? labelTrue : labelFalse}</span>;
-}
-
-function count(value) {
-  return Number.isFinite(Number(value)) ? Number(value).toLocaleString("en-IN") : "—";
-}
-
-/**
- * Data & AI diagnostics. Two separate panels on purpose: Groq credential/AI
- * health is not market-data health. The API returns only environment-variable
- * names, modes, counts and timings — never credential values.
- */
-export default function Diagnostics() {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [checkedAt, setCheckedAt] = useState(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const payload = await api("/api/diagnostics");
-      setData(payload);
-      setError(null);
-      setCheckedAt(new Date().toISOString());
-    } catch (cause) {
-      setError(cause.message || "Diagnostics unavailable.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-    const timer = window.setInterval(load, 30_000);
-    return () => window.clearInterval(timer);
-  }, [load]);
-
-  const ai = data?.ai;
+export default function Diagnostics({ onNavigate }) {
+  const { data, error, loading, reload } = useApiResource("/api/diagnostics", { intervalMs: 30_000 });
   const market = data?.market;
-  const credentials = ai?.credentials;
-  const coverage = market?.instrumentCoverage;
-  const runs = ai?.recentRuns || [];
+  const ai = data?.ai;
+  const providers = Object.values(market?.registry?.providers || {});
+  const observations = market?.observations;
   const requests = market?.recentRequests?.entries || [];
+  const agents = Object.values(ai?.agents || {});
+
+  const providerColumns = [
+    { key: "id", label: "PROVIDER", value: (row) => row.label || row.id, render: (row) => <strong>{row.label || row.id}</strong> },
+    { key: "mode", label: "STATUS", value: (row) => row.status || "active", render: (row) => <span className={`mode-pill ${row.status || "active"}`}>{row.status || "active"}</span> },
+    { key: "configured", label: "KEY", value: (row) => row.configured, render: (row) => <DataStatus state={{ code: row.configured ? "delayed" : "unavailable", label: row.configured ? "CONFIGURED" : "MISSING" }} compact /> },
+    { key: "health", label: "CIRCUIT", value: (row) => row.health?.circuit || "unknown", render: (row) => <span className="status-text">{row.health?.circuit || "unknown"}</span> },
+    { key: "verification", label: "VERIFICATION", value: (row) => row.verification?.live ? "live observed" : row.verification?.declared ? "declared" : "unverified", render: (row) => <span className="status-text">{row.verification?.live ? "live observed" : row.verification?.declared ? "declared" : "unverified"}</span> },
+    { key: "realtime", label: "REALTIME", value: (row) => Boolean(row.quote?.realtime), render: (row) => <span className={row.quote?.realtime ? "value-up" : "muted"}>{row.quote?.realtime ? "claimed" : "not claimed"}</span> },
+    { key: "tier", label: "LICENSING", value: (row) => row.licensing?.display || "—", render: (row) => <span className="status-text diag-license">{row.licensing?.display || "—"}</span> }
+  ];
+
+  const requestColumns = [
+    { key: "at", label: "TIME", value: (row) => row.at, render: (row) => <span className="muted">{formatTime(row.at)}</span> },
+    { key: "kind", label: "KIND", value: (row) => row.kind },
+    { key: "provider", label: "PROVIDER", value: (row) => row.provider || "—" },
+    { key: "attempted", label: "ATTEMPT", value: (row) => row.attempted, render: (row) => row.attempted ? "yes" : "no" },
+    { key: "httpStatus", label: "HTTP", align: "right", value: (row) => row.httpStatus ?? 0, render: (row) => row.httpStatus ?? "—" },
+    { key: "returnedCount", label: "ROWS", align: "right", value: (row) => row.returnedCount ?? 0, render: (row) => row.returnedCount ?? "—" },
+    { key: "durationMs", label: "MS", align: "right", value: (row) => row.durationMs ?? 0, render: (row) => row.durationMs ?? "—" }
+  ];
 
   return (
-    <section className="lab diagnostics">
-      <header className="lab-heading">
+    <section className="workspace diagnostics-workspace">
+      <header className="workspace-head">
         <div>
-          <span className="eyebrow">INTERNAL · DATA &amp; AI DIAGNOSTICS</span>
-          <h1>
-            Two independent systems, <span>never one green light.</span>
-          </h1>
-          <p>
-            Groq credentials and executions are measured separately from market-data providers and requests. AI
-            connectivity does not imply quote or candle coverage, and a market-data success does not imply AI readiness.
-          </p>
+          <span className="workspace-kicker">DIAGNOSTICS · SYSTEM HEALTH</span>
+          <h1>Diagnostics</h1>
+          <p>Provider health, request telemetry and AI routing. No credential value, URL or authorization header appears here.</p>
         </div>
-        <div className="heading-side">
-          <button type="button" className="mode" onClick={load} disabled={loading}>
-            {loading ? "Checking…" : "Refresh"}
-          </button>
-          <span className="chip muted">{checkedAt ? `AS OF ${formatTime(checkedAt)}` : "NOT CHECKED"}</span>
+        <div className="workspace-head-actions">
+          <span className="head-date">{data ? `GENERATED ${formatTime(data.generatedAt)}` : "LOADING"}</span>
+          <button type="button" className="t-btn secondary sm" onClick={reload} disabled={loading}><Icon name="refresh" size={13} className={loading ? "spin" : ""} /> Refresh</button>
         </div>
       </header>
 
-      {error && (
-        <div className="notice error" role="alert">
-          <strong>Diagnostics unavailable</strong>
-          <p>{error}</p>
-        </div>
-      )}
+      {error && <div className="inline-alert error" role="alert"><Icon name="warn" size={15} /><div><strong>Diagnostics unavailable</strong><span>{error.message}</span></div><button type="button" onClick={reload}>Retry</button></div>}
+
+      <div className="diagnostic-summary-grid">
+        <div className="diag-summary-card"><span>MARKET REGISTRY</span><strong>v{market?.registry?.version || "—"}</strong><small>{market ? providers.length : "—"} providers evaluated</small></div>
+        <div className="diag-summary-card"><span>VERIFIED QUOTES</span><strong>{observations?.quotes?.verified ?? "—"}</strong><small>{observations?.quotes?.instrumentsObserved ?? "—"} observed · {observations?.quotes?.verifiedFresh ?? "—"} recent successes</small></div>
+        <div className="diag-summary-card"><span>CANDLE INSTRUMENTS</span><strong>{observations?.candles?.withCandles ?? "—"}</strong><small>{observations?.candles?.failed ?? "—"} failed · {observations?.candles?.instrumentsObserved ?? "—"} observed</small></div>
+        <div className="diag-summary-card"><span>PROVIDER CALLS</span><strong>{market?.requestStates?.requestAttempted ?? "—"}</strong><small>attempted · last {market ? requests.length : "—"} records</small></div>
+        <div className="diag-summary-card"><span>AI KEYS</span><strong>{ai?.credentials?.dedicatedConfigured ?? "—"}/{ai?.credentials?.agentsConfigured ?? "—"}</strong><small>{!ai?.credentials ? "routing unknown" : ai.credentials.sharedFallback?.configured ? "shared fallback configured" : "no shared fallback"}</small></div>
+        <div className="diag-summary-card"><span>AI REQUESTS</span><strong>{ai?.usage?.requests ?? "—"}</strong><small>{compactNumber(ai?.usage?.totalTokens)} tokens</small></div>
+      </div>
 
       <div className="diagnostics-grid">
-        <article className="panel diagnostics-panel ai-panel">
-          <div className="panel-head">
-            <div>
-              <span className="section-kicker">PANEL A · GROQ AI</span>
-              <h2>Credential routing &amp; agent execution</h2>
-            </div>
-            <span className={`chip ${credentials?.strictMode ? "bad" : "muted"}`}>
-              {credentials?.strictMode ? "STRICT KEYS" : "SHARED FALLBACK ALLOWED"}
-            </span>
+        <TerminalPanel kicker="MARKET DATA" title="Provider registry" actions={<button type="button" className="t-link" onClick={() => onNavigate("coverage")}>Open coverage <Icon name="arrowRight" size={12} /></button>} className="diag-provider-panel">
+          <MarketTable columns={providerColumns} rows={providers} empty="Registry data unavailable." />
+          <div className="diag-note"><Icon name="shield" size={12} /> Yahoo/yfinance is evaluated but rejected for automated use. No request is made.</div>
+        </TerminalPanel>
+
+        <TerminalPanel kicker="RUNTIME" title="Observation window" className="diag-observation-panel">
+          <div className="kv-list">
+            <div><span>Freshness window</span><strong>{observations?.freshnessWindowMinutes ?? "—"} min</strong></div>
+            <div><span>Last quote success</span><strong>{formatTime(observations?.quotes?.lastSuccessAt)}</strong></div>
+            <div><span>Last candle success</span><strong>{formatTime(observations?.candles?.lastSuccessAt)}</strong></div>
+            <div><span>Observed quote failures</span><strong>{observations?.quotes?.failed ?? "—"}</strong></div>
+            <div><span>Observed candle failures</span><strong>{observations?.candles?.failed ?? "—"}</strong></div>
+            <div><span>Persistence</span><strong>per process</strong></div>
           </div>
+          <p className="provenance-note">{observations?.note || "Observations reset on cold start."}</p>
+        </TerminalPanel>
 
-          <div className="diag-summary">
-            <div>
-              <span>DEDICATED KEYS</span>
-              <strong>
-                {count(credentials?.dedicatedConfigured)}/{count(credentials?.agentsConfigured)}
-              </strong>
-            </div>
-            <div>
-              <span>SHARED FALLBACK</span>
-              <strong>{credentials?.sharedFallback?.configured ? "CONFIGURED" : "MISSING"}</strong>
-              <small>{credentials?.sharedFallback?.envName || "GROQ_API_KEY"}</small>
-            </div>
-            <div>
-              <span>AI REQUESTS</span>
-              <strong>{count(ai?.usage?.requests)}</strong>
-            </div>
-            <div>
-              <span>TOKENS</span>
-              <strong>{count(ai?.usage?.totalTokens)}</strong>
-            </div>
-          </div>
-
-          <table className="diag-table">
-            <thead>
-              <tr>
-                <th>AGENT</th>
-                <th>CREDENTIAL</th>
-                <th>MODE</th>
-                <th>MODEL</th>
-                <th>TOKENS</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.values(ai?.agents || {}).map((agent) => (
-                <tr key={agent.agent}>
-                  <td>{agent.agent}</td>
-                  <td>
-                    <code>{agent.credential?.envName}</code>
-                    <div>{statusChip(agent.credential?.configured)}</div>
-                  </td>
-                  <td>
-                    <span className={`chip ${agent.credential?.mode === "dedicated" ? "ok" : agent.credential?.mode === "shared" ? "warn" : "bad"}`}>
-                      {agent.credential?.mode || "none"}
-                    </span>
-                  </td>
-                  <td>{agent.model || "—"}</td>
-                  <td>{count(agent.usage?.totalTokens)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          <h3 className="sub-heading">Recent agent runs</h3>
-          {!runs.length && <div className="chart-placeholder empty compact">No agent runs recorded in this instance.</div>}
-          <ul className="diag-run-list">
-            {runs.map((run, index) => (
-              <li key={`${run.at}-${run.agent}-${index}`}>
-                <div className="diag-run-head">
-                  <strong>{run.agent}</strong>
-                  <span className={`chip ${run.status === "COMPLETED" ? "ok" : run.status === "FAILED" ? "bad" : "muted"}`}>
-                    {run.status}
-                  </span>
-                  <span>{run.model || "—"}</span>
-                  <span>{run.credentialEnvName || "no credential"} · {run.credentialMode}</span>
-                  <span>{formatTime(run.at)}</span>
-                </div>
-                <div className="diag-run-metrics">
-                  <span>HTTP {run.httpStatus ?? "—"}</span>
-                  <span>{count(run.totalTokens)} tok</span>
-                  <span>{count(run.durationMs)} ms</span>
-                  <span>{count(run.requestCount)} request(s)</span>
-                  <span>{count(run.retries)} retry</span>
-                  {run.rateLimit && (
-                    <span>
-                      rate: {run.rateLimit.remainingRequests ?? "—"} req / {run.rateLimit.remainingTokens ?? "—"} tok
-                    </span>
-                  )}
-                  {run.modelFallback && <span>fallback {run.modelFallback.from} → {run.modelFallback.to}</span>}
-                </div>
-                {run.failureReason && <p className="diag-error">{run.failureReason}</p>}
-              </li>
-            ))}
-          </ul>
-          <p className="muted-note">
-            Credential values and Authorization headers are never returned. Separate keys do not multiply Groq
-            organisation/project rate limits.
-          </p>
-        </article>
-
-        <article className="panel diagnostics-panel market-panel">
-          <div className="panel-head">
-            <div>
-              <span className="section-kicker">PANEL B · MARKET DATA</span>
-              <h2>Provider health, coverage &amp; requests</h2>
-            </div>
-            <span className="chip muted">{market?.freshness?.classification || "unknown"} freshness</span>
-          </div>
-
-          <div className="diag-summary">
-            <div>
-              <span>CATALOGUED</span>
-              <strong>{count(coverage?.catalogued)}</strong>
-            </div>
-            <div>
-              <span>QUOTE SUPPORTED</span>
-              <strong>{count(coverage?.quoteSupported)}</strong>
-            </div>
-            <div>
-              <span>QUOTE ENABLED</span>
-              <strong>{count(coverage?.quoteEnabled)}</strong>
-            </div>
-            <div>
-              <span>VERIFIED LATEST</span>
-              <strong>{count(coverage?.verifiedLatestQuote)}</strong>
-            </div>
-            <div>
-              <span>CANDLE SUPPORTED</span>
-              <strong>{count(coverage?.candleSupported)}</strong>
-            </div>
-            <div>
-              <span>CANDLES VERIFIED</span>
-              <strong>{count(coverage?.verifiedHistoricalCandles)}</strong>
-            </div>
-            <div>
-              <span>UNAVAILABLE</span>
-              <strong>{count(coverage?.unavailableFromAllConfigured)}</strong>
-            </div>
-            <div>
-              <span>REAL-TIME</span>
-              <strong>{count(coverage?.realtime)}</strong>
-            </div>
-          </div>
-
-          <p className="muted-note">
-            Last successful quote: {formatTime(market?.observations?.quotes?.lastSuccessAt)} · Last successful candle
-            batch: {formatTime(market?.observations?.candles?.lastSuccessAt)} · Request attempts:{" "}
-            {count(market?.requestStates?.requestAttempted)} · Succeeded: {count(market?.requestStates?.requestSucceeded)} ·
-            Cache hits: {count(market?.requestStates?.cacheHits)}
-          </p>
-
-          <table className="diag-table">
-            <thead>
-              <tr>
-                <th>PROVIDER</th>
-                <th>CONFIGURED</th>
-                <th>VERIFICATION</th>
-                <th>CIRCUIT / QUOTA</th>
-                <th>CAPABILITIES</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.entries(market?.providers || {}).map(([id, provider]) => (
-                <tr key={id}>
-                  <td>{provider.label || id}</td>
-                  <td>{statusChip(provider.configured)}</td>
-                  <td>{provider.verification}</td>
-                  <td>
-                    {(() => {
-                      const policy = market?.providerPolicy?.providers?.[id];
-                      if (!policy) return "no attempt in this instance";
-                      return `${policy.circuit}${policy.retryAfterSeconds ? ` · retry ${policy.retryAfterSeconds}s` : ""} · ${
-                        policy.reason || policy.lastOutcome || "unknown"
-                      }${policy.quota?.remainingRequests != null ? ` · ${policy.quota.remainingRequests} left` : ""}`;
-                    })()}
-                  </td>
-                  <td>
-                    {Object.entries(provider.capabilities || {})
-                      .map(([capability, enabled]) => `${capability}:${enabled === true ? "yes" : enabled === false ? "no" : enabled}`)
-                      .join(" · ")}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          <h3 className="sub-heading">Mapping checks</h3>
-          <div className="diag-mapping">
-            {Object.entries(market?.mappingChecks || {}).map(([symbol, info]) => (
-              <div key={symbol}>
-                <strong>{symbol}</strong>
-                <span>
-                  {info.exchange} · {info.currency} · instrument metadata only
-                </span>
-                <ul>
-                  {Object.entries(info.providers || {}).map(([provider, mapping]) => (
-                    <li key={provider}>
-                      {provider}: <code>{mapping.ticker || "unmapped"}</code>
-                    </li>
-                  ))}
-                </ul>
+        <TerminalPanel kicker="AI ROUTING" title="Agents and credentials" actions={<button type="button" className="t-link" onClick={() => onNavigate("ai-usage")}>Open AI usage <Icon name="arrowRight" size={12} /></button>} className="diag-ai-panel">
+          <div className="diag-agent-list">
+            {agents.map((agent) => (
+              <div key={agent.agent}>
+                <span>{agent.agent}</span>
+                <strong>{agent.model || "model unavailable"}</strong>
+                <small>{credentialSelection(agent.credential, ai?.credentials?.sharedFallback).mode} · {credentialSelection(agent.credential, ai?.credentials?.sharedFallback).name} · {agent.usage?.requests ?? "—"} req</small>
               </div>
             ))}
           </div>
+          <p className="provenance-note">{ai?.separation || "AI coverage and market-data coverage are measured separately."}</p>
+        </TerminalPanel>
 
-          <h3 className="sub-heading">Recent market-data requests</h3>
-          {!requests.length && (
-            <div className="chart-placeholder empty compact">
-              No quote or candle requests recorded in this instance.
-            </div>
-          )}
-          <div className="diag-request-table">
-            <table className="diag-table">
-              <thead>
-                <tr>
-                  <th>TIME</th>
-                  <th>KIND</th>
-                  <th>INSTRUMENT</th>
-                  <th>TF</th>
-                  <th>PROVIDER</th>
-                  <th>CACHE</th>
-                  <th>HTTP</th>
-                  <th>CANDLES</th>
-                  <th>MS</th>
-                  <th>ERROR</th>
-                </tr>
-              </thead>
-              <tbody>
-                {requests.map((entry, index) => (
-                  <tr key={`${entry.at}-${index}`}>
-                    <td>{formatTime(entry.at)}</td>
-                    <td>{entry.kind}</td>
-                    <td>
-                      {entry.symbol || entry.instrumentId}
-                      <small>{entry.exchange || ""}</small>
-                    </td>
-                    <td>{entry.interval || "—"}</td>
-                    <td>{entry.provider || "—"}</td>
-                    <td>{entry.cacheHit ? "hit" : entry.attempted ? "miss" : "not sent"}</td>
-                    <td>{entry.httpStatus ?? "—"}</td>
-                    <td>{entry.returnedCount}{entry.droppedCount ? ` (${entry.droppedCount} dropped)` : ""}</td>
-                    <td>{count(entry.durationMs)}</td>
-                    <td title={entry.error || ""}>{entry.error ? entry.error.slice(0, 60) : "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <TerminalPanel kicker="REQUESTS" title="Recent market requests" actions={<span className="panel-chip">{market ? requests.length : "—"} inspected / {market?.recentRequests?.count ?? "—"} retained</span>} className="diag-request-panel">
+          {requests.length ? <MarketTable columns={requestColumns} rows={requests.slice(0, 10)} empty="No requests observed." /> : <EmptyState compact icon="coverage" title="No request records" detail="No provider request records are available in this process." />}
+          <p className="provenance-note">{market ? `Showing ${Math.min(requests.length, 10)} of the last ${requests.length} records: ${market.requestStates?.requestAttempted ?? "—"} attempted, ${market.requestStates?.notSent ?? "—"} not sent. ` : ""}{market?.recentRequests?.note || "No URLs, query strings or credentials are recorded."}</p>
+        </TerminalPanel>
+
+        <TerminalPanel kicker="COVERAGE" title="Exchange directory" className="diag-directory-panel">
+          <div className="directory-grid">
+            {Object.entries(market?.byExchange || {}).map(([exchange, summary]) => (
+              <div key={exchange} className="directory-card">
+                <span>{exchange}</span>
+                <strong>{summary.catalogued ?? 0}</strong>
+                <small>{summary.verified ?? 0} verified recently</small>
+                <div className="directory-bar"><i style={{ width: `${summary.catalogued ? ((summary.verified || 0) / summary.catalogued) * 100 : 0}%` }} /></div>
+              </div>
+            ))}
           </div>
-          <p className="muted-note">
-            Request telemetry is per serverless instance and resets on cold start. Configured is not verified; verified is
-            not real-time.
-          </p>
-        </article>
-      </div>
+          <button type="button" className="t-btn secondary full" onClick={() => onNavigate("coverage")}>Inspect instrument matrix</button>
+        </TerminalPanel>
 
-      <div className="diag-separation-banner">
-        <strong>AI ≠ MARKET DATA</strong>
-        <span>
-          Groq credential status cannot prove that quotes or candles load. Market-data success cannot prove that any AI
-          agent will run. Each panel has its own success, failure and freshness signals.
-        </span>
+        <TerminalPanel kicker="VERSIONS" title="Build contract" className="diag-version-panel">
+          <div className="kv-list">
+            <div><span>Market-data registry</span><strong>v{market?.registry?.version || "—"}</strong></div>
+            <div><span>Provider registry snapshot</span><strong>{formatTime(market?.registry?.generatedAt)}</strong></div>
+            <div><span>AI provider</span><strong>{ai?.provider || "—"}</strong></div>
+            <div><span>AI telemetry</span><strong>{!ai?.telemetry ? "unknown" : ai.telemetry.persisted ? "persisted" : "per process"}</strong></div>
+            <div><span>Diagnostics generated</span><strong>{formatTime(data?.generatedAt)}</strong></div>
+            <div><span>Status light</span><DataStatus state={{ code: (observations?.quotes?.verifiedFresh || 0) > 0 ? "delayed" : "unavailable", label: !observations ? "UNKNOWN" : (observations.quotes?.verifiedFresh || 0) > 0 ? "QUOTES OBSERVED" : "NO VERIFIED QUOTES" }} compact /></div>
+          </div>
+          <EvidenceBadge tone="unverified">No secret values included</EvidenceBadge>
+        </TerminalPanel>
       </div>
     </section>
   );

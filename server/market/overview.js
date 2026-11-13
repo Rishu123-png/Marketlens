@@ -72,6 +72,7 @@ function average(values) {
 }
 
 function numberOrNull(value) {
+  if (value === null || value === undefined || value === "") return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
@@ -193,6 +194,9 @@ export async function buildMarketOverview({ now = new Date(), quotes = null } = 
     cached: false,
     market: marketSession(now),
     indices: indexEntries.map(card),
+    // Feature a small fixed subset even when a quote has no change value or is
+    // not a top mover. Each quote still comes from the verified gateway path.
+    featuredStocks: stockEntries.slice(0, 4).map(card),
     breadth: {
       universeAttempted: stockEntries.length,
       verified: verifiedStocks.length,
@@ -200,14 +204,15 @@ export async function buildMarketOverview({ now = new Date(), quotes = null } = 
       advancers,
       decliners,
       unchanged,
+      changesAvailable: changes.length,
       advancePercent: changes.length ? Number(((advancers / changes.length) * 100).toFixed(1)) : null,
       basis: "verified quotes only, popular Indian universe",
       note:
-        "Breadth is calculated over instruments with verified quotes, not the whole exchange. It is not exchange-wide market breadth."
+        "Breadth uses verified quotes with a reported percentage change, not the whole exchange. It is not exchange-wide market breadth."
     },
     sectors,
-    gainers: withChange.slice(0, 8).map(card),
-    losers: withChange.slice(-8).reverse().map(card),
+    gainers: withChange.filter((entry) => Number(entry.quote.changePercent) > 0).slice(0, 8).map(card),
+    losers: withChange.filter((entry) => Number(entry.quote.changePercent) < 0).slice(-8).reverse().map(card),
     volumeLeaders: volumeLeaders.map(card),
     heatmap: stockEntries.map((entry) => ({
       id: entry.instrument.id,
