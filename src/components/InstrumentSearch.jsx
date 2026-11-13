@@ -1,14 +1,21 @@
 import { useEffect, useRef, useState } from "react";
+import Icon from "./terminal/Icon.jsx";
 import { api } from "../lib/api.js";
 import { ASSET_LABELS, availabilityLabel } from "../lib/instruments.js";
 
 /**
- * Search over the merged instrument master. Results state exchange, asset type
- * and whether any configured provider can quote the instrument; selection is
- * explicit so a search result is never mistaken for a live quote.
+ * Search over the merged instrument master. A result states exchange, asset
+ * type and quote capability. Selecting it never implies that a price exists.
  */
-export default function InstrumentSearch({ onSelect, placeholder = "Search symbol, company, exchange or asset type", autoFocus = false, compact = false }) {
-  const [query, setQuery] = useState("");
+export default function InstrumentSearch({
+  onSelect,
+  placeholder = "Search symbol, company or exchange",
+  autoFocus = false,
+  compact = false,
+  value,
+  onChange
+}) {
+  const [query, setQuery] = useState(value || "");
   const [results, setResults] = useState([]);
   const [total, setTotal] = useState(0);
   const [open, setOpen] = useState(false);
@@ -18,19 +25,24 @@ export default function InstrumentSearch({ onSelect, placeholder = "Search symbo
   const requestRef = useRef(0);
 
   useEffect(() => {
-    const value = query.trim();
-    if (value.length < 1) {
+    if (value !== undefined && value !== query) setQuery(value);
+  }, [value]);
+
+  useEffect(() => {
+    const id = ++requestRef.current;
+    const clean = query.trim();
+    if (clean.length < 1) {
       setResults([]);
       setTotal(0);
       setLoading(false);
+      setError(null);
       return undefined;
     }
-
     setLoading(true);
-    const id = ++requestRef.current;
-    const timer = setTimeout(async () => {
+    setResults([]);
+    const timer = window.setTimeout(async () => {
       try {
-        const data = await api(`/api/instruments?q=${encodeURIComponent(value)}&limit=12`);
+        const data = await api(`/api/instruments?q=${encodeURIComponent(clean)}&limit=12`);
         if (requestRef.current !== id) return;
         setResults(data.instruments || []);
         setTotal(Number(data.total) || 0);
@@ -41,8 +53,7 @@ export default function InstrumentSearch({ onSelect, placeholder = "Search symbo
         if (requestRef.current === id) setLoading(false);
       }
     }, 220);
-
-    return () => clearTimeout(timer);
+    return () => window.clearTimeout(timer);
   }, [query]);
 
   useEffect(() => {
@@ -55,12 +66,14 @@ export default function InstrumentSearch({ onSelect, placeholder = "Search symbo
 
   function choose(instrument) {
     setQuery(`${instrument.symbol} · ${instrument.exchange}`);
+    onChange?.(`${instrument.symbol} · ${instrument.exchange}`);
     setOpen(false);
     onSelect?.(instrument);
   }
 
   return (
-    <div className={`instrument-picker${compact ? " compact" : ""}`} ref={box}>
+    <div className={`instrument-search ${compact ? "is-compact" : ""}`.trim()} ref={box}>
+      <Icon name="search" size={15} className="instrument-search-icon" />
       <input
         value={query}
         autoFocus={autoFocus}
@@ -68,7 +81,10 @@ export default function InstrumentSearch({ onSelect, placeholder = "Search symbo
         aria-label="Instrument search"
         autoComplete="off"
         onChange={(event) => {
+          requestRef.current += 1;
+          setResults([]);
           setQuery(event.target.value);
+          onChange?.(event.target.value);
           setOpen(true);
         }}
         onFocus={() => setOpen(true)}
@@ -80,18 +96,22 @@ export default function InstrumentSearch({ onSelect, placeholder = "Search symbo
           if (event.key === "Escape") setOpen(false);
         }}
       />
-      {loading && <span className="picker-state">searching…</span>}
-      {open && (results.length > 0 || error) && (
-        <ul className="picker-results" role="listbox">
-          {error && <li className="picker-error">{error}</li>}
+      {loading && <span className="search-spinner" aria-label="Searching" />}
+      {open && query.trim() && (
+        <ul className="instrument-results" role="listbox">
+          {error && <li className="instrument-error">{error}</li>}
+          {!loading && !error && !results.length && <li className="instrument-more">No catalogued match.</li>}
           {results.map((instrument) => {
             const availability = availabilityLabel(instrument);
             return (
               <li key={instrument.id}>
                 <button type="button" onClick={() => choose(instrument)} role="option" aria-selected="false">
-                  <span className="picker-symbol">{instrument.symbol}</span>
-                  <span className="picker-name">{instrument.name}</span>
-                  <span className="picker-meta">
+                  <span className="result-monogram">{instrument.symbol.slice(0, 2)}</span>
+                  <span className="result-copy">
+                    <strong>{instrument.symbol}</strong>
+                    <small>{instrument.name}</small>
+                  </span>
+                  <span className="result-meta">
                     {instrument.exchange} · {ASSET_LABELS[instrument.assetType] || instrument.assetType}
                   </span>
                   <span className={`availability-dot ${availability.tone}`} title={availability.label} />
@@ -100,9 +120,7 @@ export default function InstrumentSearch({ onSelect, placeholder = "Search symbo
             );
           })}
           {total > results.length && (
-            <li className="picker-more">
-              Showing {results.length} of {total} matches — refine the query or use the instrument explorer.
-            </li>
+            <li className="instrument-more">{results.length} of {total} matches · refine the query</li>
           )}
         </ul>
       )}

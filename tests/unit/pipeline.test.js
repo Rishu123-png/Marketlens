@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { InMemoryJobStore } from "../../server/jobs/store.js";
 import { JobRunner } from "../../server/jobs/worker.js";
 import { runResearch } from "../../server/orchestrator/research.js";
+import { canPublishReport } from "../../src/lib/researchGate.js";
 
 const NOW = new Date("2026-02-10T09:00:00.000Z");
 
@@ -214,6 +215,7 @@ test("worker + orchestrator produce a persisted, schema-valid report", async () 
   assert.equal(stored.report.sections.sentiment.includes("does not request"), true);
   assert.ok(stored.report.methodology.includes("Publication gate"));
   assert.equal(stored.report.gate.verdict, "PASS_WITH_WARNINGS");
+  assert.equal(canPublishReport(stored.report, outcome.job), true, "the UI accepts the actual validated job and report gates");
 
   const runs = store.getAgentRuns(job.jobId);
   assert.deepEqual(Object.keys(runs).sort(), ["chart", "coordinator", "risk", "technical"]);

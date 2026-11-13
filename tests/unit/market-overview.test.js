@@ -49,6 +49,9 @@ test("breadth and sectors are derived only from verified quotes", async () => {
   assert.equal(overview.breadth.advancers, 1);
   assert.equal(overview.breadth.decliners, 1);
   assert.equal(overview.breadth.unchanged, 1);
+  assert.equal(overview.breadth.changesAvailable, 3);
+  assert.deepEqual(overview.gainers.map((item) => item.symbol), ["RELIANCE"]);
+  assert.deepEqual(overview.losers.map((item) => item.symbol), ["TCS"]);
   assert.equal(overview.indices.length, 1);
   assert.equal(overview.coverage.verified, 4);
   assert.equal(overview.coverage.attempted, 5);
@@ -72,4 +75,22 @@ test("no verified quotes produces an explicit no-coverage result, not placeholde
   assert.equal(overview.breadth.advancePercent, null);
   assert.deepEqual(overview.gainers, []);
   assert.ok(overview.heatmap.every((tile) => tile.verified === false && tile.price === null));
+});
+
+
+test("a verified price without a reported change does not invent flat breadth or movers", async () => {
+  const entries = [
+    entry(getInstrument("IN-EQ-TCS"), { changePercent: null, volume: null }),
+    entry(getInstrument("IN-EQ-INFY"), { changePercent: undefined })
+  ];
+  const overview = await buildMarketOverview({ quotes: entries, now: new Date("2026-11-12T05:00:00Z") });
+  assert.equal(overview.breadth.verified, 2);
+  assert.equal(overview.featuredStocks.find((item) => item.symbol === "TCS").quote.price, 100);
+  assert.equal(overview.breadth.changesAvailable, 0);
+  assert.equal(overview.breadth.advancePercent, null);
+  assert.equal(overview.breadth.unchanged, 0);
+  assert.deepEqual(overview.gainers, []);
+  assert.deepEqual(overview.losers, []);
+  assert.deepEqual(overview.sectors, []);
+  assert.ok(overview.heatmap.every((tile) => tile.changePercent === null));
 });

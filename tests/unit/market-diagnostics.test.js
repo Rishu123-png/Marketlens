@@ -5,6 +5,7 @@ import { clearCandleCache, getCandles } from "../../server/market-data/candles.j
 import { clearQuoteCache, getVerifiedQuote } from "../../server/market-data/gateway.js";
 import {
   marketRequestSnapshot,
+  recordQuoteObservation,
   resetObservationsForTests
 } from "../../server/market-data/observations.js";
 import { buildMarketDiagnostics } from "../../server/market-data/diagnostics.js";
@@ -194,6 +195,19 @@ test("market diagnostics separate providers, coverage and live verification stat
 
   assert.equal(JSON.stringify(diagnostics).includes("fake-key-not-a-secret-to-send"), false);
   assert.equal(JSON.stringify(diagnostics).includes("apikey="), false);
+});
+
+test("verified quote diagnostics count latest verified observations, not HTTP successes", () => {
+  resetObservationsForTests();
+  recordQuoteObservation({ instrumentId: "IN-EQ-TCS", provider: "fixture", ok: true, quote: { price: 100, currency: "INR" } });
+  recordQuoteObservation({ instrumentId: "IN-EQ-INFY", provider: "fixture", ok: false, error: "unavailable" });
+  const diagnostics = buildMarketDiagnostics({ env: {} });
+  assert.equal(diagnostics.observations.quotes.verified, 1);
+  assert.equal(diagnostics.requestStates.verifiedQuoteSuccesses, 1);
+  assert.equal(diagnostics.requestStates.quoteHttpSuccesses, 0);
+  recordQuoteObservation({ instrumentId: "IN-EQ-TCS", provider: "fixture", ok: false, error: "later failure" });
+  assert.equal(buildMarketDiagnostics({ env: {} }).requestStates.verifiedQuoteSuccesses, 0);
+  resetObservationsForTests();
 });
 
 test("the diagnostics endpoint returns two independent panels without credentials", async () => {

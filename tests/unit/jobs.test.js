@@ -185,6 +185,18 @@ test("memory queue is FIFO and clearable", async () => {
   assert.equal(queue.size(), 0);
 });
 
+test("memory queue acknowledges only the matching delivery", async () => {
+  const queue = createMemoryQueue();
+  await queue.enqueue({ jobId: "a" });
+  await queue.enqueue({ jobId: "b" });
+  await queue.enqueue({ jobId: "a", retry: true });
+  assert.equal(queue.acknowledge("missing"), false);
+  assert.equal(queue.acknowledge("a"), true);
+  assert.equal(queue.size(), 2);
+  assert.equal((await queue.dequeue()).jobId, "b");
+  assert.equal((await queue.dequeue()).retry, true);
+});
+
 test("qstash publish posts the job to the worker with a bearer token", async () => {
   let captured = null;
   const fetchImpl = async (url, options) => {

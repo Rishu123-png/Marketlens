@@ -55,6 +55,10 @@ export default async function handler(req, res) {
 
     if (req.method === "DELETE") {
       const cancelled = await store.cancel(jobId);
+      if (cancelled.status === "CANCELLED") {
+        const queue = getQueue();
+        if (queue.id === "memory") queue.acknowledge(jobId);
+      }
       return res.status(200).json({
         jobId,
         status: cancelled.status,

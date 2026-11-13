@@ -28,7 +28,7 @@ function toSeries(candles) {
     if (time === null) continue;
 
     price.push({ time, open: candle.open, high: candle.high, low: candle.low, close: candle.close });
-    if (Number.isFinite(Number(candle.volume))) {
+    if (candle.volume != null && candle.volume !== "" && Number.isFinite(Number(candle.volume))) {
       volume.push({
         time,
         value: Number(candle.volume),
@@ -70,6 +70,9 @@ export default function PriceChart({
 
     const chart = createChart(container.current, {
       height,
+      // An explicit BCP-47 locale avoids malformed OS locale strings in
+      // headless/embedded browsers and keeps numeric axes deterministic.
+      localization: { locale: "en-IN" },
       layout: {
         background: { color: "transparent" },
         textColor: "#87939e",
@@ -138,7 +141,7 @@ export default function PriceChart({
         wickDownColor: "#fb7278"
       });
     }
-  }, [mode]);
+  }, [mode, height]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -157,7 +160,7 @@ export default function PriceChart({
       priceLineVisible: false
     });
     volumeRef.current.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
-  }, [showVolume]);
+  }, [showVolume, height]);
 
   useEffect(() => {
     if (!mainRef.current) return;
@@ -170,7 +173,7 @@ export default function PriceChart({
     }
     if (volumeRef.current) volumeRef.current.setData(volume);
     if (price.length) chartRef.current?.timeScale().fitContent();
-  }, [candles, mode]);
+  }, [candles, mode, showVolume, height]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -193,7 +196,7 @@ export default function PriceChart({
       series.setData(data);
       overlayRefs.current.push(series);
     }
-  }, [overlays]);
+  }, [overlays, height]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -222,7 +225,7 @@ export default function PriceChart({
       ]);
       trendlineRefs.current.push(series);
     }
-  }, [trendlines]);
+  }, [trendlines, height]);
 
   useEffect(() => {
     const series = mainRef.current;
@@ -250,7 +253,7 @@ export default function PriceChart({
         })
       );
     }
-  }, [levels, mode]);
+  }, [levels, mode, height]);
 
   if (!candles.length) {
     return (
