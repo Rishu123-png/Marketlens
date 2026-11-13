@@ -94,3 +94,24 @@ test("a verified price without a reported change does not invent flat breadth or
   assert.deepEqual(overview.sectors, []);
   assert.ok(overview.heatmap.every((tile) => tile.changePercent === null));
 });
+
+test("movers return the ten strongest gains and all qualifying losses in order", async () => {
+  const entries = POPULAR_INDIAN_EQUITY_IDS.map((id, index) => entry(getInstrument(id), {
+    changePercent: index < 12 ? index + 1 : -(index - 11)
+  })).reverse(); // The provider's response order must not become the ranking.
+  const overview = await buildMarketOverview({ quotes: entries, now: new Date(stamp) });
+
+  assert.deepEqual(overview.gainers.map((item) => item.quote.changePercent), [12, 11, 10, 9, 8, 7, 6, 5, 4, 3]);
+  assert.deepEqual(overview.losers.map((item) => item.quote.changePercent), [-8, -7, -6, -5, -4, -3, -2, -1]);
+  assert.equal(overview.breadth.universeAttempted, 20);
+});
+
+test("movers return the ten largest losses, not merely the first ten declines", async () => {
+  const entries = POPULAR_INDIAN_EQUITY_IDS.map((id, index) => entry(getInstrument(id), {
+    changePercent: -(index + 1)
+  }));
+  const overview = await buildMarketOverview({ quotes: entries, now: new Date(stamp) });
+
+  assert.deepEqual(overview.gainers, []);
+  assert.deepEqual(overview.losers.map((item) => item.quote.changePercent), [-20, -19, -18, -17, -16, -15, -14, -13, -12, -11]);
+});

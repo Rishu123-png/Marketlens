@@ -137,6 +137,7 @@ function App() {
       coverage={coverage}
       coverageError={coverageError}
       loading={loading}
+      reduceMotion={preferences.reduceMotion}
       onRefresh={refreshShared}
     >
       <React.Suspense fallback={<section className="workspace"><div className="workspace-loading" role="status">Loading workspace…</div></section>}>

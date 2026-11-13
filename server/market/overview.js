@@ -211,8 +211,8 @@ export async function buildMarketOverview({ now = new Date(), quotes = null } = 
         "Breadth uses verified quotes with a reported percentage change, not the whole exchange. It is not exchange-wide market breadth."
     },
     sectors,
-    gainers: withChange.filter((entry) => Number(entry.quote.changePercent) > 0).slice(0, 8).map(card),
-    losers: withChange.filter((entry) => Number(entry.quote.changePercent) < 0).slice(-8).reverse().map(card),
+    gainers: withChange.filter((entry) => Number(entry.quote.changePercent) > 0).slice(0, 10).map(card),
+    losers: withChange.filter((entry) => Number(entry.quote.changePercent) < 0).slice(-10).reverse().map(card),
     volumeLeaders: volumeLeaders.map(card),
     heatmap: stockEntries.map((entry) => ({
       id: entry.instrument.id,
