@@ -60,6 +60,7 @@ export default function AppChrome({
   coverage,
   coverageError,
   loading,
+  reduceMotion,
   onRefresh,
   children
 }) {
@@ -198,6 +199,8 @@ export default function AppChrome({
 
         <MarketTicker
           overview={overview}
+          loading={loading}
+          reduceMotion={reduceMotion}
           onSelect={(instrument) => navigate("markets", instrument)}
         />
 

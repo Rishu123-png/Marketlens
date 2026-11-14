@@ -41,6 +41,12 @@ identity-checked response. Free provider tiers are labelled delayed, not real-ti
 Missing data is never silently omitted or filled. Provider quota/circuit state and
 explicit failure reasons are in `/api/diagnostics`.
 
+The market tape scrolls up to ten gainers followed by up to ten losers, ranked
+from verified quotes in the curated 20-stock Indian universe — not the whole
+exchange. It shows fewer movers when fewer qualify, and an explicit empty state
+when quotes or changes are unavailable. The tape can be paused or scrolled
+manually and respects the system and in-app reduced-motion settings.
+
 ## Quick start
 
 ```bash

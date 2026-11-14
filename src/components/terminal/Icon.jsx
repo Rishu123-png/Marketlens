@@ -23,6 +23,7 @@ const PATHS = {
   external: <><path d="M14 5h5v5" /><path d="m10 14 9-9" /><path d="M19 14v5H5V5h5" /></>,
   filter: <><path d="M4 5h16l-6 7v6l-4 2v-8Z" /></>,
   play: <path d="m8 5 11 7-11 7Z" />,
+  pause: <><path d="M8 5v14M16 5v14" /></>,
   candle: <><path d="M7 3v4M7 17v4M17 3v7M17 14v7" /><rect x="5" y="7" width="4" height="10" rx=".5" /><rect x="15" y="10" width="4" height="4" rx=".5" /></>,
   line: <><path d="m3 17 5-6 4 3 4-7 5 5" /><path d="M3 21h18" /></>,
   volume: <><path d="M5 20V13M10 20V7M15 20V10M20 20V4" /></>,
